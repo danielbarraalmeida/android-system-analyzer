@@ -39,8 +39,10 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import shutil
 import signal
 import sys
+import tempfile
 import time
 import uuid
 from collections import deque
@@ -425,11 +427,14 @@ def explore(  # noqa: PLR0912, PLR0915  — intentionally a single-function BFS
                     execute_tap(serial, step["x"], step["y"], command_log)
                     wait_for_ui_settle(serial, command_log, settle_ms)
 
-                # Verify we arrived at the expected state.
+                # Capture the live state to get an accurate pre_tap_sig.
+                # Route to a temp dir — replay verification snapshots must not
+                # pollute states_dir (they are not BFS-discovered states).
+                _replay_tmp = Path(tempfile.mkdtemp(prefix="v2_replay_"))
                 try:
                     verify_cap_dir = generate_report(
                         serial=serial,
-                        output_dir=states_dir,
+                        output_dir=_replay_tmp,
                         adb_root_mode=adb_root_mode,
                         parent_capture_id=None,
                         interacted_element_id=None,
@@ -438,6 +443,7 @@ def explore(  # noqa: PLR0912, PLR0915  — intentionally a single-function BFS
                     verify_snap  = _load_snapshot(verify_cap_dir)
                     verify_elems = verify_snap.get("elements", [])
                     arrived_sig  = compute_state_signature(verify_elems)
+                    arrived_pkg  = verify_snap.get("context", {}).get("package_name")
                 except CaptureFatalError as exc:
                     msg = f"[v2_explore] WARNING: replay verification capture failed: {exc}"
                     print(msg, file=sys.stderr)
@@ -447,25 +453,36 @@ def explore(  # noqa: PLR0912, PLR0915  — intentionally a single-function BFS
                     attempts.append(attempt)
                     save_registry(session_dir, states, transitions, attempts)
                     continue
+                finally:
+                    shutil.rmtree(_replay_tmp, ignore_errors=True)
 
-                expected_sig = next(
-                    (s["state_signature"] for s in states if s["state_id"] == current_state_id),
+                # Soft sanity check: skip only if the arrived app package is
+                # entirely different from the stored state's package — that is a
+                # genuine navigation failure (e.g. a system dialog hijacked focus).
+                # Do NOT skip on signature mismatch: the stored state_signature is
+                # a stale snapshot from discovery time; dynamic UI drift (climate,
+                # media, overlays) will always produce a different signature even
+                # when replay correctly lands on the same screen.
+                expected_pkg = next(
+                    (s["package_name"] for s in states if s["state_id"] == current_state_id),
                     None,
                 )
-                if expected_sig and not is_same_state(arrived_sig, expected_sig):
+                if expected_pkg and arrived_pkg and arrived_pkg != expected_pkg:
                     msg = (
-                        f"[v2_explore] WARNING: replay landed on unexpected state "
-                        f"(expected sig {expected_sig[:8]}…, got {arrived_sig[:8]}…) "
+                        f"[v2_explore] WARNING: replay landed in wrong app "
+                        f"(expected {expected_pkg!r}, arrived {arrived_pkg!r}) "
                         f"— skipping tap on {element_id}"
                     )
                     print(msg, file=sys.stderr)
                     warnings.append(msg)
                     attempt["outcome"]     = "blocked"
-                    attempt["skip_reason"] = "replay_failed"
+                    attempt["skip_reason"] = "replay_wrong_app"
                     attempts.append(attempt)
                     save_registry(session_dir, states, transitions, attempts)
                     continue
 
+                # arrived_sig is the LIVE current state — always accurate for
+                # no_change detection after the tap, regardless of drift.
                 pre_tap_sig = arrived_sig
 
             tap_started = _now()
