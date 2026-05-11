@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Session — {{SESSION_ID}}</title>
+  <style>
+    :root {
+      --bg:      #0d1117;
+      --surf:    #161b22;
+      --surf2:   #1c2128;
+      --border:  #30363d;
+      --text:    #c9d1d9;
+      --muted:   #8b949e;
+      --accent:  #58a6ff;
+      --green:   #3fb950;
+      --amber:   #d29922;
+      --red:     #f85149;
+      --neutral: #484f58;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px; line-height: 1.6;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      font-family: "Cascadia Code","SF Mono",Consolas,monospace;
+      font-size: .82em; background: #1c2433;
+      border: 1px solid var(--border); border-radius: 4px; padding: .1em .35em;
+    }
+
+    /* ── Hero ─────────────────────────────────────────── */
+    .hero {
+      background: linear-gradient(135deg,#0d1117 0%,#161b22 55%,#0f2139 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 28px 28px 22px;
+    }
+    .hero h1 { font-size: 18px; font-weight: 700; color: var(--accent);
+               margin-bottom: 6px; }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 4px 20px;
+                 font-size: 12px; color: var(--muted); }
+    .hero-meta strong { color: #c9d1d9; }
+
+    /* ── Page ─────────────────────────────────────────── */
+    .page { max-width: 1440px; margin: 0 auto; padding: 24px 28px 56px; }
+
+    /* ── Stat cards ───────────────────────────────────── */
+    .stat-bar { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 28px; }
+    .card { background: var(--surf); border: 1px solid var(--border);
+            border-radius: 8px; padding: 14px 20px; min-width: 120px; text-align: center; }
+    .card-num   { font-size: 28px; font-weight: 700; color: var(--accent); line-height: 1; }
+    .card-label { font-size: 11px; color: var(--muted); margin-top: 5px;
+                  text-transform: uppercase; letter-spacing: .5px; }
+
+    /* ── Section heading ──────────────────────────────── */
+    .sec-head {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .7px; color: var(--muted);
+      margin: 28px 0 14px; padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Graph ────────────────────────────────────────── */
+    .graph-wrap {
+      background: var(--surf); border: 1px solid var(--border);
+      border-radius: 8px; padding: 16px; margin-bottom: 28px;
+      overflow-x: auto;
+    }
+    #graph-svg { display: block; }
+
+    /* Graph legend */
+    .graph-legend { display: flex; gap: 16px; flex-wrap: wrap;
+                    font-size: 11px; color: var(--muted);
+                    margin-top: 12px; padding-top: 10px;
+                    border-top: 1px solid var(--border); }
+    .leg-item { display: flex; align-items: center; gap: 5px; }
+    .leg-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+    /* ── Tables ───────────────────────────────────────── */
+    .search-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .search-row input {
+      background: var(--surf); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text);
+      padding: 7px 12px; font-size: 13px; width: 300px;
+    }
+    .search-row input::placeholder { color: var(--muted); }
+    .search-row input:focus { outline: none; border-color: var(--accent); }
+
+    .tbl-wrap { overflow-x: auto; border: 1px solid var(--border);
+                border-radius: 8px; margin-bottom: 28px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      position: sticky; top: 0; z-index: 1;
+      background: var(--surf2); border-bottom: 2px solid var(--border);
+      padding: 9px 12px; text-align: left;
+      font-weight: 600; color: var(--muted); white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid #1e252d; }
+    tbody tr:hover td { background: #1a2130; }
+    td { padding: 8px 12px; vertical-align: top; }
+
+    /* outcome row accents */
+    .outcome-success  td:first-child { border-left: 3px solid var(--green);  }
+    .outcome-nochange td:first-child { border-left: 3px solid var(--neutral); }
+    .outcome-failed   td:first-child { border-left: 3px solid var(--red);    }
+    .outcome-blocked  td:first-child { border-left: 3px solid var(--amber);  }
+
+    /* badges */
+    .badge {
+      display: inline-block; border-radius: 999px; padding: 2px 9px;
+      font-size: 11px; font-weight: 600; white-space: nowrap;
+    }
+    .badge-home    { background: rgba(88,166,255,.15); color: var(--accent); }
+    .badge-success { background: rgba(63,185,80,.15);  color: var(--green);  }
+    .badge-nochange{ background: rgba(72,79,88,.30);   color: var(--muted);  }
+    .badge-failed  { background: rgba(248,81,73,.15);  color: var(--red);    }
+    .badge-blocked { background: rgba(210,153,34,.15); color: var(--amber);  }
+    /* keep the old badge-home span from Python rows */
+    .badge-home[class*="badge-home"] { vertical-align: middle; margin-left: 5px; }
+
+    /* ── Collapsible ──────────────────────────────────── */
+    details { margin-bottom: 20px; }
+    details > summary {
+      cursor: pointer; font-size: 13px; font-weight: 600;
+      color: var(--accent); padding: 8px 0; list-style: none;
+      display: flex; align-items: center; gap: 6px;
+    }
+    details > summary::before { content: "▶"; font-size: 10px; transition: transform .15s; }
+    details[open] > summary::before { transform: rotate(90deg); }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════ HERO ══════════════════════════ -->
+<div class="hero">
+  <h1>BFS Session Report</h1>
+  <div class="hero-meta">
+    <span><strong>Session</strong> {{SESSION_ID}}</span>
+    <span><strong>Device</strong> {{DEVICE_SERIAL}}</span>
+    <span><strong>Started</strong> {{STARTED_UTC}}</span>
+    <span><strong>Finished</strong> {{FINISHED_UTC}}</span>
+    <span><strong>Stop reason</strong> {{STOP_REASON}}</span>
+  </div>
+</div>
+
+<div class="page">
+
+  <!-- ══════════════════ STAT CARDS ════════════════════════ -->
+  <div class="stat-bar">{{CARDS_HTML}}</div>
+
+  <!-- ══════════════════ STATE GRAPH ═══════════════════════ -->
+  <p class="sec-head">State Transition Graph</p>
+  <div class="graph-wrap">
+    <svg id="graph-svg" style="min-height:60px"></svg>
+    <div class="graph-legend">
+      <span class="leg-item"><span class="leg-dot" style="background:#3fb950"></span>success</span>
+      <span class="leg-item"><span class="leg-dot" style="background:#484f58"></span>no_change</span>
+      <span class="leg-item"><span class="leg-dot" style="background:#f85149"></span>failed</span>
+      <span class="leg-item"><span class="leg-dot" style="background:#d29922"></span>blocked</span>
+    </div>
+  </div>
+
+  <!-- ══════════════════ STATES TABLE ══════════════════════ -->
+  <p class="sec-head">Discovered States</p>
+  <div class="search-row">
+    <input type="search" id="state-search"
+           placeholder="Filter states&hellip;"
+           oninput="filterTbl('state-tbl','state-search')" />
+  </div>
+  <div class="tbl-wrap">
+    <table id="state-tbl">
+      <thead>
+        <tr>
+          <th>State ID</th>
+          <th>Depth</th>
+          <th>Package</th>
+          <th>Activity</th>
+          <th>Elements</th>
+          <th>Candidates</th>
+          <th>Visited At (UTC)</th>
+        </tr>
+      </thead>
+      <tbody>{{STATE_ROWS}}</tbody>
+    </table>
+  </div>
+
+  <!-- ══════════════════ TRANSITIONS TABLE ═════════════════ -->
+  <p class="sec-head">Transitions</p>
+  <div class="search-row">
+    <input type="search" id="tr-search"
+           placeholder="Filter transitions&hellip;"
+           oninput="filterTbl('tr-tbl','tr-search')" />
+  </div>
+  <div class="tbl-wrap">
+    <table id="tr-tbl">
+      <thead>
+        <tr>
+          <th>From State</th>
+          <th>Element ID</th>
+          <th>Action</th>
+          <th>To State</th>
+          <th>Outcome</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody>{{TRANSITION_ROWS}}</tbody>
+    </table>
+  </div>
+
+  <!-- ══════════════════ STOP CONDITIONS ═══════════════════ -->
+  <details>
+    <summary>Stop Conditions</summary>
+    <div class="tbl-wrap" style="margin-top:8px">
+      <table>
+        <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
+        <tbody>{{STOP_CONDITION_ROWS}}</tbody>
+      </table>
+    </div>
+  </details>
+
+</div><!-- /page -->
+
+<script>
+/* ── Table filter ─────────────────────────────────────────── */
+function filterTbl(tblId, searchId) {
+  const q = document.getElementById(searchId).value.toLowerCase();
+  document.querySelectorAll('#' + tblId + ' tbody tr').forEach(r => {
+    r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+
+/* ── Outcome badge helper ────────────────────────────────── */
+function outcomeBadge(outcome) {
+  const cls = { success:'badge-success', no_change:'badge-nochange',
+                failed:'badge-failed', blocked:'badge-blocked' };
+  return `<span class="badge ${cls[outcome]||'badge-nochange'}">${outcome}</span>`;
+}
+
+/* ── State-transition graph (SVG, parsed from DOM tables) ── */
+(function buildGraph() {
+  const svg = document.getElementById('graph-svg');
+  if (!svg) return;
+
+  /* Parse states from the state table */
+  const states = new Map();   /* id → {id,depth,activity,isHome,candidates} */
+  const byDepth = new Map();  /* depth → [id] */
+  document.querySelectorAll('#state-tbl tbody tr').forEach(row => {
+    const cells = row.querySelectorAll('td');
+    if (cells.length < 7) return;
+    const idCell = cells[0];
+    const linkEl = idCell.querySelector('a');
+    const id = (linkEl ? linkEl.textContent : idCell.textContent).trim().replace(/\bHOME\b/,'').trim();
+    const depth = parseInt(cells[1].textContent) || 0;
+    const activity = cells[3].textContent.trim().replace(/^.*\./,'');  /* short name */
+    const isHome = !!idCell.querySelector('.badge-home');
+    const candidates = parseInt(cells[5].textContent) || 0;
+    states.set(id, { id, depth, activity, isHome, candidates, link: linkEl ? linkEl.href : null });
+    if (!byDepth.has(depth)) byDepth.set(depth, []);
+    byDepth.get(depth).push(id);
+  });
+
+  /* Parse transitions, dedup src→dst pairs */
+  const edges = [];
+  const seenEdge = new Set();
+  document.querySelectorAll('#tr-tbl tbody tr').forEach(row => {
+    const cells = row.querySelectorAll('td');
+    if (cells.length < 5) return;
+    const src = cells[0].textContent.trim();
+    const dst = cells[3].textContent.trim();
+    const outcome = cells[4].textContent.trim();
+    if (src && dst && dst !== '—' && dst !== '' && dst !== src) {
+      const key = src + '→' + dst + '→' + outcome;
+      if (!seenEdge.has(key)) { seenEdge.add(key); edges.push({ src, dst, outcome }); }
+    }
+  });
+
+  if (states.size === 0) {
+    svg.innerHTML = '<text x="16" y="30" fill="#8b949e" font-size="13" font-family="sans-serif">No states to visualise yet.</text>';
+    svg.setAttribute('height', '50');
+    return;
+  }
+
+  /* Layout: columns by depth, rows evenly spaced */
+  const NW = 170, NH = 50, HGAP = 220, VGAP = 72, PADX = 20, PADY = 20;
+  const maxDepth = Math.max(...byDepth.keys());
+  const maxRows  = Math.max(...[...byDepth.values()].map(a => a.length));
+  const W = (maxDepth + 1) * HGAP + NW + PADX * 2;
+  const H = maxRows * VGAP + NH + PADY * 2;
+
+  const pos = new Map();  /* id → {x,y} */
+  byDepth.forEach((ids, depth) => {
+    const total = ids.length;
+    ids.forEach((id, i) => {
+      const x = PADX + depth * HGAP + NW / 2;
+      const y = PADY + NH / 2 + i * VGAP + ((maxRows - total) * VGAP / 2);
+      pos.set(id, { x, y });
+    });
+  });
+
+  const oColor = { success:'#3fb950', no_change:'#484f58', failed:'#f85149', blocked:'#d29922' };
+
+  /* Build SVG content */
+  let defs = '<defs>';
+  Object.entries(oColor).forEach(([k, c]) => {
+    defs += `<marker id="arr-${k}" markerWidth="8" markerHeight="7" refX="7" refY="3.5" orient="auto">
+      <path d="M0,0 L8,3.5 L0,7 z" fill="${c}"/></marker>`;
+  });
+  defs += '</defs>';
+
+  let edgeSvg = '', nodeSvg = '';
+
+  /* Edges */
+  edges.forEach(e => {
+    const sp = pos.get(e.src), dp = pos.get(e.dst);
+    if (!sp || !dp) return;
+    const c = oColor[e.outcome] || '#484f58';
+    const x1 = sp.x + NW / 2, y1 = sp.y;
+    const x2 = dp.x - NW / 2, y2 = dp.y;
+    const mx = (x1 + x2) / 2, my = Math.min(y1, y2) - 24;
+    edgeSvg += `<path d="M${x1},${y1} Q${mx},${my} ${x2},${y2}"
+      fill="none" stroke="${c}" stroke-width="1.5" opacity="0.75"
+      marker-end="url(#arr-${e.outcome})"/>`;
+  });
+
+  /* Nodes */
+  states.forEach(st => {
+    const p = pos.get(st.id);
+    if (!p) return;
+    const nx = p.x - NW / 2, ny = p.y - NH / 2;
+    const fill   = st.isHome ? '#122d4c' : '#1c2128';
+    const stroke = st.isHome ? '#58a6ff' : '#30363d';
+    const sw     = st.isHome ? 2 : 1;
+    const idShort = st.id.slice(-18);
+    const actShort = st.activity.length > 22 ? st.activity.slice(0, 21) + '…' : st.activity;
+    const link = st.link ? `<a href="${st.link}" target="_blank">` : '';
+    const linkClose = st.link ? '</a>' : '';
+    nodeSvg += `${link}
+      <rect x="${nx}" y="${ny}" width="${NW}" height="${NH}"
+            rx="7" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>
+      <text x="${p.x}" y="${p.y - 8}" text-anchor="middle"
+            fill="${st.isHome ? '#58a6ff' : '#c9d1d9'}"
+            font-size="9.5" font-family="Consolas,monospace">${idShort}</text>
+      <text x="${p.x}" y="${p.y + 6}" text-anchor="middle"
+            fill="#8b949e" font-size="10" font-family="sans-serif">${actShort}</text>
+      <text x="${p.x}" y="${p.y + 19}" text-anchor="middle"
+            fill="#3fb950" font-size="9" font-family="sans-serif">${st.candidates} cand.</text>
+    ${linkClose}`;
+  });
+
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('width',  Math.min(W, 1100));
+  svg.setAttribute('height', H);
+  svg.innerHTML = defs + edgeSvg + nodeSvg;
+})();
+
+/* ── Decorate transition outcome cells with badges ──────── */
+document.querySelectorAll('#tr-tbl tbody tr').forEach(row => {
+  const cells = row.querySelectorAll('td');
+  if (cells.length < 5) return;
+  const outcome = cells[4].textContent.trim();
+  if (outcome) cells[4].innerHTML = outcomeBadge(outcome);
+  row.classList.add('outcome-' + outcome.replace('_','-'));
+});
+</script>
+</body>
+</html>

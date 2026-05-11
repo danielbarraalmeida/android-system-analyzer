@@ -1,0 +1,9 @@
+# Android System Analyzer Python dependencies
+#
+# jsonschema is used by current_screen_report.py to validate generated JSON
+# artifacts against templates/screen-snapshot.schema.json at capture time.
+# Schema validation is part of the v1 contract (§2.5 / §13 acceptance checklist).
+jsonschema>=4.0
+
+# Test harness dependencies (see scripts/run_tests_report.py and tests/).
+pytest>=8.0

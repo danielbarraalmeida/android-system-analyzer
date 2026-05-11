@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "system-context.schema.json",
+  "title": "AndroidSystemContext",
+  "description": "Exhaustive system-level information collected once per v2 session from the Home screen.",
+  "type": "object",
+  "required": ["collected_at_utc", "device_serial"],
+  "additionalProperties": true,
+  "properties": {
+    "collected_at_utc": { "type": "string", "description": "ISO-8601 UTC timestamp of collection start." },
+    "device_serial":    { "type": "string" },
+    "build_properties": { "$ref": "#/$defs/sub_collector" },
+    "installed_packages": { "$ref": "#/$defs/sub_collector" },
+    "device_features":  { "$ref": "#/$defs/sub_collector" },
+    "declared_permissions": { "$ref": "#/$defs/sub_collector" },
+    "audio_state":      { "$ref": "#/$defs/sub_collector" },
+    "settings_system":  { "$ref": "#/$defs/sub_collector" },
+    "settings_secure":  { "$ref": "#/$defs/sub_collector" },
+    "settings_global":  { "$ref": "#/$defs/sub_collector" },
+    "battery_state":    { "$ref": "#/$defs/sub_collector" },
+    "display_info":     { "$ref": "#/$defs/sub_collector" },
+    "memory_info":      { "$ref": "#/$defs/sub_collector" },
+    "cpu_info":         { "$ref": "#/$defs/sub_collector" },
+    "storage_info":     { "$ref": "#/$defs/sub_collector" },
+    "network_state":    { "$ref": "#/$defs/sub_collector" },
+    "wifi_state":       { "$ref": "#/$defs/sub_collector" },
+    "bluetooth_state":  { "$ref": "#/$defs/sub_collector" },
+    "sensors":          { "$ref": "#/$defs/sub_collector" },
+    "input_devices":    { "$ref": "#/$defs/sub_collector" },
+    "running_services": { "$ref": "#/$defs/sub_collector" },
+    "running_processes":{ "$ref": "#/$defs/sub_collector" },
+    "window_manager":   { "$ref": "#/$defs/sub_collector" },
+    "location_state":   { "$ref": "#/$defs/sub_collector" }
+  },
+  "$defs": {
+    "sub_collector": {
+      "type": "object",
+      "required": ["command", "exit_code", "collected_utc", "raw", "parsed"],
+      "additionalProperties": false,
+      "properties": {
+        "command":       { "type": "string" },
+        "exit_code":     { "type": "integer" },
+        "collected_utc": { "type": "string" },
+        "raw":           { "type": "string" },
+        "parsed":        {}
+      }
+    }
+  }
+}

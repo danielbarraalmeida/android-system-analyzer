@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://android-system-analyzer.local/schema/screen-snapshot.json",
+  "title": "ScreenSnapshot",
+  "description": "Canonical dataset for one Android current-screen capture (v1 contract).",
+  "type": "object",
+  "required": ["capture", "context", "summary", "elements", "diagnostics"],
+  "properties": {
+
+    "capture": {
+      "type": "object",
+      "required": ["capture_id", "timestamp_utc", "device_serial", "source", "origin"],
+      "properties": {
+        "capture_id":     { "type": "string" },
+        "timestamp_utc":  { "type": "string", "format": "date-time" },
+        "device_serial":  { "type": "string" },
+        "source": {
+          "type": "object",
+          "required": ["ui_dump_path", "screenshot_path"],
+          "properties": {
+            "ui_dump_path":    { "type": "string" },
+            "screenshot_path": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "origin": {
+          "description": "Provenance link to the parent capture and interaction. All fields are null for root v1 captures.",
+          "type": "object",
+          "required": ["parent_capture_id", "interacted_element_id", "action_type"],
+          "properties": {
+            "parent_capture_id":      { "type": ["string", "null"] },
+            "interacted_element_id":  { "type": ["string", "null"] },
+            "action_type": {
+              "type": ["string", "null"],
+              "enum": ["tap", "long_tap", "scroll", "swipe", "input", null]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "context": {
+      "type": "object",
+      "required": ["package_name", "activity_name", "screen_width", "screen_height", "screen_density"],
+      "properties": {
+        "package_name":    { "type": "string" },
+        "activity_name":   { "type": "string" },
+        "screen_width":    { "type": "integer", "minimum": 0 },
+        "screen_height":   { "type": "integer", "minimum": 0 },
+        "screen_density":  { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+
+    "summary": {
+      "type": "object",
+      "required": [
+        "xml_node_count",
+        "element_count",
+        "clickable_count",
+        "long_clickable_count",
+        "focusable_count",
+        "focused_count",
+        "enabled_count",
+        "scrollable_count",
+        "selected_count",
+        "checked_count",
+        "checkable_count",
+        "password_count",
+        "interaction_candidate_count",
+        "parity_assertions"
+      ],
+      "properties": {
+        "xml_node_count":              { "type": "integer", "minimum": 0 },
+        "element_count":               { "type": "integer", "minimum": 0 },
+        "clickable_count":             { "type": "integer", "minimum": 0 },
+        "long_clickable_count":        { "type": "integer", "minimum": 0 },
+        "focusable_count":             { "type": "integer", "minimum": 0 },
+        "focused_count":               { "type": "integer", "minimum": 0 },
+        "enabled_count":               { "type": "integer", "minimum": 0 },
+        "scrollable_count":            { "type": "integer", "minimum": 0 },
+        "selected_count":              { "type": "integer", "minimum": 0 },
+        "checked_count":               { "type": "integer", "minimum": 0 },
+        "checkable_count":             { "type": "integer", "minimum": 0 },
+        "password_count":              { "type": "integer", "minimum": 0 },
+        "interaction_candidate_count": { "type": "integer", "minimum": 0 },
+        "parity_assertions": {
+          "type": "object",
+          "required": ["xml_equals_elements"],
+          "properties": {
+            "xml_equals_elements": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "elements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "element_id", "identity_version", "normalized_path", "parent_path",
+          "depth", "sibling_index", "xml_index_preorder",
+          "class_name", "resource_id", "package", "view_type_hint",
+          "text", "content_desc", "hint", "value", "input_type",
+          "bounds_raw", "bounds", "width", "height", "center_x", "center_y",
+          "clickable", "long_clickable", "focusable", "focused", "scrollable",
+          "selected", "enabled", "checked", "checkable", "password",
+          "is_interaction_candidate", "action_types", "candidacy_reasons",
+          "source_attributes", "source_attributes_extra"
+        ],
+        "properties": {
+          "element_id":         { "type": "string" },
+          "identity_version":   { "type": "string" },
+          "normalized_path":    { "type": "string" },
+          "parent_path":        { "type": ["string", "null"] },
+          "depth":              { "type": "integer", "minimum": 0 },
+          "sibling_index":      { "type": "integer", "minimum": 0 },
+          "xml_index_preorder": { "type": "integer", "minimum": 0 },
+
+          "class_name":     { "type": ["string", "null"] },
+          "resource_id":    { "type": ["string", "null"] },
+          "package":        { "type": ["string", "null"] },
+          "view_type_hint": { "type": ["string", "null"] },
+
+          "text":        { "type": "string" },
+          "content_desc":{ "type": "string" },
+          "hint":        { "type": ["string", "null"] },
+          "value":       { "type": ["string", "null"] },
+          "input_type":  { "type": ["string", "null"] },
+
+          "bounds_raw": { "type": "string" },
+          "bounds": {
+            "type": "object",
+            "required": ["left", "top", "right", "bottom"],
+            "properties": {
+              "left":   { "type": "integer" },
+              "top":    { "type": "integer" },
+              "right":  { "type": "integer" },
+              "bottom": { "type": "integer" }
+            },
+            "additionalProperties": false
+          },
+          "width":    { "type": "integer", "minimum": 0 },
+          "height":   { "type": "integer", "minimum": 0 },
+          "center_x": { "type": "integer" },
+          "center_y": { "type": "integer" },
+
+          "clickable":      { "type": "boolean" },
+          "long_clickable": { "type": "boolean" },
+          "focusable":      { "type": "boolean" },
+          "focused":        { "type": "boolean" },
+          "scrollable":     { "type": "boolean" },
+          "selected":       { "type": "boolean" },
+          "enabled":        { "type": "boolean" },
+          "checked":        { "type": "boolean" },
+          "checkable":      { "type": "boolean" },
+          "password":       { "type": "boolean" },
+
+          "is_interaction_candidate": { "type": "boolean" },
+          "action_types":       { "type": "array", "items": { "type": "string" } },
+          "candidacy_reasons":  { "type": "array", "items": { "type": "string" } },
+
+          "source_attributes":       { "type": "object" },
+          "source_attributes_extra": { "type": "object" }
+        }
+      }
+    },
+
+    "diagnostics": {
+      "type": "object",
+      "required": ["adb_command_log", "warnings", "limitations", "errors", "validation"],
+      "properties": {
+        "adb_command_log": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["command", "exit_code", "stdout", "stderr", "started_utc", "finished_utc"],
+            "properties": {
+              "command":      { "type": "string" },
+              "exit_code":    { "type": "integer" },
+              "stdout":       { "type": "string" },
+              "stderr":       { "type": "string" },
+              "started_utc":  { "type": "string" },
+              "finished_utc": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "warnings":    { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } },
+        "errors":      { "type": "array", "items": { "type": "string" } },
+        "validation": {
+          "type": "object",
+          "required": ["schema_validation_performed", "schema_validation_passed", "schema_validation_error"],
+          "properties": {
+            "schema_validation_performed": { "type": "boolean" },
+            "schema_validation_passed":    { "type": "boolean" },
+            "schema_validation_error":     { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+
+  },
+  "additionalProperties": false
+}

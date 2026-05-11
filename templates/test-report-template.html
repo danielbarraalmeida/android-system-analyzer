@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Test Report — {{generated_utc}}</title>
+<style>
+  :root {
+    --bg:     #0d1117;
+    --surf:   #161b22;
+    --surf2:  #1c2128;
+    --border: #30363d;
+    --text:   #c9d1d9;
+    --muted:  #8b949e;
+    --accent: #58a6ff;
+    --pass:   #3fb950;
+    --fail:   #f85149;
+    --skip:   #d29922;
+    --err:    #ff7b72;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px; line-height: 1.6;
+  }
+
+  /* ── Header ─────────────────────────────────────────── */
+  header {
+    background: linear-gradient(135deg,#0d1117 0%,#161b22 60%,#0e1f0e 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 24px 32px;
+    display: flex; flex-wrap: wrap; gap: 16px;
+    align-items: flex-start; justify-content: space-between;
+  }
+  header h1 { font-size: 18px; font-weight: 700; color: var(--accent); }
+  .header-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* Donut chart */
+  .donut-wrap { display: flex; align-items: center; gap: 20px; }
+  #donut { flex-shrink: 0; }
+  .donut-legend { display: flex; flex-direction: column; gap: 5px;
+                  font-size: 12px; color: var(--muted); }
+  .donut-legend .di { display: flex; align-items: center; gap: 7px; }
+  .donut-legend .dc { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── Main ───────────────────────────────────────────── */
+  main { padding: 24px 32px 48px; max-width: 1440px; margin: 0 auto; }
+
+  /* ── Totals ─────────────────────────────────────────── */
+  .totals {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 12px; margin-bottom: 28px;
+  }
+  .tot-card {
+    background: var(--surf); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 16px;
+  }
+  .tot-lbl  { font-size: 10px; text-transform: uppercase; letter-spacing: .6px;
+               color: var(--muted); }
+  .tot-val  { font-size: 26px; font-weight: 700; margin-top: 4px; color: var(--text); }
+  .tot-card.c-pass .tot-val { color: var(--pass); }
+  .tot-card.c-fail .tot-val { color: var(--fail); }
+  .tot-card.c-skip .tot-val { color: var(--skip); }
+  .tot-card.c-err  .tot-val { color: var(--err);  }
+
+  /* Progress bar */
+  .progress-wrap { margin-bottom: 24px; }
+  .progress-bar {
+    height: 8px; border-radius: 999px;
+    background: var(--surf2); overflow: hidden; display: flex;
+  }
+  .progress-bar .seg { height: 100%; transition: width .4s; }
+  .progress-lbl { font-size: 11px; color: var(--muted); margin-top: 5px; }
+
+  /* ── Controls ───────────────────────────────────────── */
+  .controls {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    align-items: center; margin-bottom: 14px;
+  }
+  .controls input {
+    background: var(--surf); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 12px; font-size: 13px;
+    flex: 1 1 220px; max-width: 360px;
+  }
+  .controls input:focus { outline: none; border-color: var(--accent); }
+  .filter-btn {
+    background: var(--surf); color: var(--text);
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 5px 14px; font-size: 12px; cursor: pointer;
+  }
+  .filter-btn.active { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Table ──────────────────────────────────────────── */
+  .tbl-wrap {
+    overflow-x: auto; border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    position: sticky; top: 0; z-index: 1;
+    background: var(--surf2); border-bottom: 2px solid var(--border);
+    padding: 9px 12px; text-align: left;
+    font-weight: 600; color: var(--muted); white-space: nowrap;
+  }
+  tbody tr { border-bottom: 1px solid #1e252d; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover td { background: #1a2130; }
+  td { padding: 8px 12px; vertical-align: top; }
+
+  /* Status pill */
+  .status {
+    display: inline-block; border-radius: 999px;
+    padding: 2px 10px; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .3px;
+  }
+  .status.passed  { background: rgba(63,185,80,.15);   color: var(--pass); }
+  .status.failed  { background: rgba(248,81,73,.15);   color: var(--fail); }
+  .status.skipped { background: rgba(210,153,34,.15);  color: var(--skip); }
+  .status.error   { background: rgba(255,123,114,.15); color: var(--err);  }
+
+  .test-name { font-family: "Cascadia Code","SF Mono",Consolas,monospace;
+               font-size: 12px; color: var(--accent); word-break: break-all; }
+  .test-desc { font-size: 12px; color: var(--muted); margin-top: 3px;
+               line-height: 1.45; max-width: 70ch; }
+  .duration  { color: var(--muted); font-variant-numeric: tabular-nums;
+               font-size: 12px; white-space: nowrap; }
+  .file-cell { font-size: 12px; color: var(--muted); word-break: break-word; }
+
+  details { margin-top: 6px; }
+  details summary { cursor: pointer; color: var(--accent); font-size: 12px;
+                    list-style: none; }
+  details summary::before { content: "▶ "; font-size: 10px; }
+  details[open] summary::before { content: "▼ "; }
+  pre { background: #0b0f14; border: 1px solid var(--border); border-radius: 6px;
+        padding: 8px 12px; overflow-x: auto; font-size: 11px;
+        white-space: pre-wrap; word-break: break-word; margin-top: 6px; }
+
+  /* ── Footer ─────────────────────────────────────────── */
+  footer { padding: 16px 32px; font-size: 11px; color: var(--muted);
+           border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════ HEADER ════════════════════════ -->
+<header>
+  <div>
+    <h1>Android System Analyzer &mdash; Test Report</h1>
+    <div class="header-meta">
+      Generated&nbsp;{{generated_utc}} &middot;
+      Suite duration&nbsp;{{duration_seconds}}s &middot;
+      Exit code&nbsp;<strong>{{exit_code}}</strong>
+    </div>
+  </div>
+  <div class="donut-wrap">
+    <svg id="donut" width="80" height="80" viewBox="0 0 80 80"></svg>
+    <div class="donut-legend" id="donut-legend"></div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ══════════════════ TOTALS ════════════════════════════ -->
+  <div class="totals">
+    <div class="tot-card">        <div class="tot-lbl">Total</div>
+      <div class="tot-val" id="v-total">{{total}}</div></div>
+    <div class="tot-card c-pass">
+      <div class="tot-lbl">Passed</div>
+      <div class="tot-val" id="v-passed">{{passed}}</div></div>
+    <div class="tot-card c-fail">
+      <div class="tot-lbl">Failed</div>
+      <div class="tot-val" id="v-failed">{{failed}}</div></div>
+    <div class="tot-card c-err">
+      <div class="tot-lbl">Errors</div>
+      <div class="tot-val" id="v-errors">{{errors}}</div></div>
+    <div class="tot-card c-skip">
+      <div class="tot-lbl">Skipped</div>
+      <div class="tot-val" id="v-skipped">{{skipped}}</div></div>
+    <div class="tot-card">
+      <div class="tot-lbl">Unit</div>
+      <div class="tot-val">{{unit_count}}</div></div>
+    <div class="tot-card">
+      <div class="tot-lbl">Component</div>
+      <div class="tot-val">{{component_count}}</div></div>
+  </div>
+
+  <!-- ══════════════════ PROGRESS BAR ══════════════════════ -->
+  <div class="progress-wrap">
+    <div class="progress-bar" id="pbar"></div>
+    <div class="progress-lbl" id="pbar-lbl"></div>
+  </div>
+
+  <!-- ══════════════════ CONTROLS ══════════════════════════ -->
+  <div class="controls">
+    <input id="search" type="text" placeholder="Search tests or descriptions&hellip;" autocomplete="off" />
+    <button class="filter-btn active" data-filter="all">All</button>
+    <button class="filter-btn" data-filter="failed">Failed</button>
+    <button class="filter-btn" data-filter="error">Errors</button>
+    <button class="filter-btn" data-filter="passed">Passed</button>
+    <button class="filter-btn" data-filter="skipped">Skipped</button>
+  </div>
+
+  <!-- ══════════════════ TABLE ══════════════════════════════ -->
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:100px">Status</th>
+          <th>Test</th>
+          <th>File</th>
+          <th style="width:90px">Suite</th>
+          <th style="width:90px">Duration</th>
+        </tr>
+      </thead>
+      <tbody id="rows">{{rows}}</tbody>
+    </table>
+  </div>
+
+</main>
+
+<footer>
+  Source: {{junit_path}} &middot; JSON summary: {{json_path}}
+</footer>
+
+<script>
+(function () {
+  /* ── Filter & search ─────────────────────────────────── */
+  const btns    = document.querySelectorAll('.filter-btn');
+  const rows    = document.querySelectorAll('#rows tr');
+  const srch    = document.getElementById('search');
+  let active = 'all', q = '';
+
+  function apply() {
+    rows.forEach(r => {
+      const statusOk = active === 'all' || r.dataset.status === active;
+      const qOk = !q || r.textContent.toLowerCase().includes(q);
+      r.style.display = statusOk && qOk ? '' : 'none';
+    });
+  }
+  btns.forEach(b => b.addEventListener('click', () => {
+    btns.forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    active = b.dataset.filter;
+    apply();
+  }));
+  srch.addEventListener('input', () => { q = srch.value.toLowerCase(); apply(); });
+
+  /* ── Progress bar ────────────────────────────────────── */
+  const total   = parseInt(document.getElementById('v-total').textContent)   || 0;
+  const passed  = parseInt(document.getElementById('v-passed').textContent)  || 0;
+  const failed  = parseInt(document.getElementById('v-failed').textContent)  || 0;
+  const errors  = parseInt(document.getElementById('v-errors').textContent)  || 0;
+  const skipped = parseInt(document.getElementById('v-skipped').textcontent) || 0;
+
+  if (total > 0) {
+    const pbar = document.getElementById('pbar');
+    const segs = [
+      { val: passed,  color: '#3fb950', label: 'Passed' },
+      { val: failed,  color: '#f85149', label: 'Failed' },
+      { val: errors,  color: '#ff7b72', label: 'Errors' },
+      { val: skipped, color: '#d29922', label: 'Skipped' },
+    ];
+    segs.forEach(s => {
+      if (!s.val) return;
+      const seg = document.createElement('div');
+      seg.className = 'seg';
+      seg.style.width = (s.val / total * 100).toFixed(2) + '%';
+      seg.style.background = s.color;
+      pbar.appendChild(seg);
+    });
+    const pct = total ? ((passed / total) * 100).toFixed(1) : 0;
+    document.getElementById('pbar-lbl').textContent =
+      `${passed}/${total} passed (${pct}%)` +
+      (failed  ? ` · ${failed} failed`  : '') +
+      (errors  ? ` · ${errors} errors`  : '') +
+      (skipped ? ` · ${skipped} skipped`: '');
+  }
+
+  /* ── Donut chart ─────────────────────────────────────── */
+  const svg = document.getElementById('donut');
+  const legend = document.getElementById('donut-legend');
+  const cx = 40, cy = 40, R = 28, r = 14;
+  const slices = [
+    { val: passed,  color: '#3fb950', label: 'Passed'  },
+    { val: failed,  color: '#f85149', label: 'Failed'  },
+    { val: errors,  color: '#ff7b72', label: 'Errors'  },
+    { val: skipped, color: '#d29922', label: 'Skipped' },
+  ].filter(s => s.val > 0);
+  const sum = slices.reduce((a, s) => a + s.val, 0) || 1;
+  let angle = -Math.PI / 2;
+  slices.forEach(s => {
+    const sweep = (s.val / sum) * 2 * Math.PI;
+    const x1 = cx + R * Math.cos(angle);
+    const y1 = cy + R * Math.sin(angle);
+    angle += sweep;
+    const x2 = cx + R * Math.cos(angle);
+    const y2 = cy + R * Math.sin(angle);
+    const large = sweep > Math.PI ? 1 : 0;
+    const xi1 = cx + r * Math.cos(angle);
+    const yi1 = cy + r * Math.sin(angle);
+    const xi2 = cx + r * Math.cos(angle - sweep);
+    const yi2 = cy + r * Math.sin(angle - sweep);
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d',
+      `M${x1},${y1} A${R},${R} 0 ${large},1 ${x2},${y2}` +
+      ` L${xi1},${yi1} A${r},${r} 0 ${large},0 ${xi2},${yi2} Z`);
+    path.setAttribute('fill', s.color);
+    svg.appendChild(path);
+    const li = document.createElement('div');
+    li.className = 'di';
+    li.innerHTML = `<span class="dc" style="background:${s.color}"></span>${s.label}: ${s.val}`;
+    legend.appendChild(li);
+  });
+})();
+</script>
+</body>
+</html>

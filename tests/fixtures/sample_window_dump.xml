@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.example.app"
+        content-desc="" checkable="false" checked="false" clickable="false" enabled="true"
+        focusable="false" focused="false" scrollable="false" long-clickable="false"
+        password="false" selected="false" bounds="[0,0][1080,1920]">
+    <node index="0" text="Header" resource-id="com.example.app:id/header" class="android.widget.TextView"
+          package="com.example.app" content-desc="" checkable="false" checked="false" clickable="false"
+          enabled="true" focusable="false" focused="false" scrollable="false" long-clickable="false"
+          password="false" selected="false" bounds="[0,0][1080,200]"/>
+    <node index="1" text="" resource-id="com.example.app:id/list" class="androidx.recyclerview.widget.RecyclerView"
+          package="com.example.app" content-desc="" checkable="false" checked="false" clickable="false"
+          enabled="true" focusable="false" focused="false" scrollable="true" long-clickable="false"
+          password="false" selected="false" bounds="[0,200][1080,1700]">
+      <node index="0" text="Item one" resource-id="com.example.app:id/item" class="android.widget.Button"
+            package="com.example.app" content-desc="First item" checkable="false" checked="false"
+            clickable="true" enabled="true" focusable="true" focused="false" scrollable="false"
+            long-clickable="true" password="false" selected="false" bounds="[0,200][1080,400]"/>
+      <node index="1" text="Item two" resource-id="com.example.app:id/item" class="android.widget.Button"
+            package="com.example.app" content-desc="Second item" checkable="false" checked="false"
+            clickable="true" enabled="true" focusable="true" focused="true" scrollable="false"
+            long-clickable="false" password="false" selected="true" bounds="[0,400][1080,600]">
+        <!-- depth-3 node: child of a list item -->
+        <node index="0" text="Badge" resource-id="com.example.app:id/badge" class="android.widget.TextView"
+              package="com.example.app" content-desc="" checkable="false" checked="false"
+              clickable="false" enabled="true" focusable="false" focused="false" scrollable="false"
+              long-clickable="false" password="false" selected="false" bounds="[900,400][1080,600]"/>
+      </node>
+    </node>
+    <node index="2" text="" resource-id="com.example.app:id/checkbox" class="android.widget.CheckBox"
+          package="com.example.app" content-desc="Accept terms" checkable="true" checked="true"
+          clickable="true" enabled="true" focusable="true" focused="false" scrollable="false"
+          long-clickable="false" password="false" selected="false" bounds="[0,1600][540,1700]"/>
+    <node index="3" text="" resource-id="com.example.app:id/password" class="android.widget.EditText"
+          package="com.example.app" content-desc="Password|secret" checkable="false" checked="false"
+          clickable="true" enabled="true" focusable="true" focused="false" scrollable="false"
+          long-clickable="false" password="true" selected="false" bounds="[0,1700][1080,1800]"
+          extra-vendor="sensitive"/>
+    <node index="4" text="" resource-id="com.example.app:id/input" class="android.widget.EditText"
+          package="com.example.app" content-desc="" hint="Type here" input-type="1" checkable="false"
+          checked="false" clickable="true" enabled="true" focusable="true" focused="false"
+          scrollable="false" long-clickable="false" password="false" selected="false"
+          bounds="[0,1800][1080,1860]"/>
+    <node index="5" text="Submit" resource-id="com.example.app:id/submit" class="android.widget.Button"
+          package="com.example.app" content-desc="" checkable="false" checked="false" clickable="true"
+          enabled="false" focusable="true" focused="false" scrollable="false" long-clickable="false"
+          password="false" selected="false" bounds="[0,1860][1080,1920]"/>
+  </node>
+</hierarchy>
