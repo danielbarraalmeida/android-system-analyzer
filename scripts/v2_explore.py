@@ -362,6 +362,15 @@ def explore(  # noqa: PLR0912, PLR0915  — intentionally a single-function BFS
         if current_depth >= max_depth:
             continue
 
+        # Build the replay path once per state (used by all candidates at depth > 0).
+        # Avoids re-scanning the full transitions list once per element.
+        if current_depth == 0:
+            state_replay_steps: list[dict[str, Any]] | None = []  # depth 0: no replay needed
+        else:
+            state_replay_steps = _build_path_to_state(
+                current_state_id, home_state_id, transitions
+            )
+
         for elem in candidates:
             if _interrupted:
                 if stop_reason == "queue_exhausted":
@@ -394,18 +403,37 @@ def explore(  # noqa: PLR0912, PLR0915  — intentionally a single-function BFS
                 "attempted_utc": attempt_time,
             }
 
-            # Always navigate to Home before every tap (Home-per-tap invariant)
+            # Navigate to Home before every tap (Home-per-tap invariant).
+            # navigate_to_home already calls wait_for_ui_settle internally,
+            # so no extra wait needed here.
             navigate_to_home(serial, command_log, warnings, settle_ms)
-            wait_for_ui_settle(serial, command_log, settle_ms)
 
             if current_depth == 0:
-                # Home-level tap: device is already at Home.
-                pre_tap_sig = home_sig
+                # Home-level tap: capture the LIVE Home state as pre_tap_sig.
+                # Using the original home_sig (captured at session start) is stale —
+                # the launcher can drift over the course of the session.
+                _home_live_tmp = Path(tempfile.mkdtemp(prefix="v2_home_live_"))
+                try:
+                    _live_cap_dir = generate_report(
+                        serial=serial,
+                        output_dir=_home_live_tmp,
+                        adb_root_mode=adb_root_mode,
+                        parent_capture_id=None,
+                        interacted_element_id=None,
+                        action_type=None,
+                    )
+                    _live_snap  = _load_snapshot(_live_cap_dir)
+                    _live_elems = _live_snap.get("elements", [])
+                    pre_tap_sig = compute_state_signature(_live_elems)
+                except CaptureFatalError:
+                    # Fallback: session-start Home signature is still better than nothing.
+                    pre_tap_sig = home_sig
+                finally:
+                    shutil.rmtree(_home_live_tmp, ignore_errors=True)
             else:
                 # Deep tap: replay the path from Home to the current state.
-                replay_steps = _build_path_to_state(
-                    current_state_id, home_state_id, transitions
-                )
+                # Use the pre-computed path (built once per state, not per element).
+                replay_steps = state_replay_steps
                 if replay_steps is None:
                     msg = (
                         f"[v2_explore] WARNING: cannot reconstruct path to "
