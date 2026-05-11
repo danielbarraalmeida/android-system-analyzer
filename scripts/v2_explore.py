@@ -160,6 +160,56 @@ def _make_state_record(
 
 
 # ---------------------------------------------------------------------------
+# Path replay
+# ---------------------------------------------------------------------------
+
+def _build_path_to_state(
+    target_state_id: str,
+    home_state_id: str,
+    transitions: list[dict[str, Any]],
+) -> list[dict[str, Any]] | None:
+    """Return the ordered sequence of tap steps needed to reach *target_state_id* from Home.
+
+    Each step is a dict with keys ``x``, ``y`` (tap coordinates) and
+    ``state_id`` (the state we expect to land on after the tap).
+
+    Returns ``None`` if no path can be reconstructed (orphaned state).
+    Returns an empty list if *target_state_id* is the Home root itself.
+    """
+    if target_state_id == home_state_id:
+        return []
+
+    # Build a reverse lookup: destination_state_id → transition
+    # Only consider successful transitions (outcome == "success").
+    dest_to_transition: dict[str, dict[str, Any]] = {}
+    for t in transitions:
+        if t["outcome"] == "success" and t["destination_state_id"]:
+            dest_to_transition[t["destination_state_id"]] = t
+
+    steps: list[dict[str, Any]] = []
+    current = target_state_id
+    seen: set[str] = set()
+
+    while current != home_state_id:
+        if current in seen:
+            return None  # cycle — should not happen in a well-formed BFS graph
+        seen.add(current)
+        t = dest_to_transition.get(current)
+        if t is None:
+            return None  # no incoming transition — orphaned state
+        payload = t["action_payload"]
+        steps.append({
+            "x":        payload["x"],
+            "y":        payload["y"],
+            "state_id": t["destination_state_id"],
+        })
+        current = t["source_state_id"]
+
+    steps.reverse()  # Home → … → target
+    return steps
+
+
+# ---------------------------------------------------------------------------
 # Interrupt handler
 # ---------------------------------------------------------------------------
 
@@ -342,27 +392,81 @@ def explore(  # noqa: PLR0912, PLR0915  — intentionally a single-function BFS
                 "attempted_utc": attempt_time,
             }
 
-            # For depth > 0 taps, deep replay is not yet implemented
-            if current_depth > 0:
-                msg = (
-                    f"[v2_explore] WARNING: deep replay not implemented "
-                    f"(state {current_state_id} depth={current_depth})"
-                    f" — skipping tap on {element_id}"
-                )
-                print(msg, file=sys.stderr)
-                warnings.append(msg)
-                attempt["outcome"]     = "blocked"
-                attempt["skip_reason"] = "deep_replay_not_implemented"
-                attempts.append(attempt)
-                save_registry(session_dir, states, transitions, attempts)
-                continue
-
             # Always navigate to Home before every tap (Home-per-tap invariant)
             navigate_to_home(serial, command_log, warnings, settle_ms)
             wait_for_ui_settle(serial, command_log, settle_ms)
 
-            # For Home-level taps: Home is restored before every tap, so use home_sig
-            pre_tap_sig = home_sig
+            if current_depth == 0:
+                # Home-level tap: device is already at Home.
+                pre_tap_sig = home_sig
+            else:
+                # Deep tap: replay the path from Home to the current state.
+                replay_steps = _build_path_to_state(
+                    current_state_id, home_state_id, transitions
+                )
+                if replay_steps is None:
+                    msg = (
+                        f"[v2_explore] WARNING: cannot reconstruct path to "
+                        f"{current_state_id} — skipping tap on {element_id}"
+                    )
+                    print(msg, file=sys.stderr)
+                    warnings.append(msg)
+                    attempt["outcome"]     = "blocked"
+                    attempt["skip_reason"] = "path_not_found"
+                    attempts.append(attempt)
+                    save_registry(session_dir, states, transitions, attempts)
+                    continue
+
+                print(
+                    f"[v2_explore]   Replaying {len(replay_steps)}-step path "
+                    f"to {current_state_id} …"
+                )
+                for step in replay_steps:
+                    execute_tap(serial, step["x"], step["y"], command_log)
+                    wait_for_ui_settle(serial, command_log, settle_ms)
+
+                # Verify we arrived at the expected state.
+                try:
+                    verify_cap_dir = generate_report(
+                        serial=serial,
+                        output_dir=states_dir,
+                        adb_root_mode=adb_root_mode,
+                        parent_capture_id=None,
+                        interacted_element_id=None,
+                        action_type=None,
+                    )
+                    verify_snap  = _load_snapshot(verify_cap_dir)
+                    verify_elems = verify_snap.get("elements", [])
+                    arrived_sig  = compute_state_signature(verify_elems)
+                except CaptureFatalError as exc:
+                    msg = f"[v2_explore] WARNING: replay verification capture failed: {exc}"
+                    print(msg, file=sys.stderr)
+                    warnings.append(msg)
+                    attempt["outcome"]     = "blocked"
+                    attempt["skip_reason"] = "replay_capture_failed"
+                    attempts.append(attempt)
+                    save_registry(session_dir, states, transitions, attempts)
+                    continue
+
+                expected_sig = next(
+                    (s["state_signature"] for s in states if s["state_id"] == current_state_id),
+                    None,
+                )
+                if expected_sig and not is_same_state(arrived_sig, expected_sig):
+                    msg = (
+                        f"[v2_explore] WARNING: replay landed on unexpected state "
+                        f"(expected sig {expected_sig[:8]}…, got {arrived_sig[:8]}…) "
+                        f"— skipping tap on {element_id}"
+                    )
+                    print(msg, file=sys.stderr)
+                    warnings.append(msg)
+                    attempt["outcome"]     = "blocked"
+                    attempt["skip_reason"] = "replay_failed"
+                    attempts.append(attempt)
+                    save_registry(session_dir, states, transitions, attempts)
+                    continue
+
+                pre_tap_sig = arrived_sig
 
             tap_started = _now()
             tap_ok      = execute_tap(serial, x, y, command_log)
