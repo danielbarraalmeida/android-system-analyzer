@@ -309,6 +309,15 @@ def _parse_bounds(bounds_raw: str | None) -> dict[str, int]:
     return {"left": left, "top": top, "right": right, "bottom": bottom}
 
 
+def _serialize_source_path(path: Path) -> str:
+    """Return ROOT-relative path when possible, else absolute path string."""
+    resolved_path = path.resolve()
+    try:
+        return resolved_path.relative_to(ROOT.resolve()).as_posix()
+    except ValueError:
+        return resolved_path.as_posix()
+
+
 def _compute_element_id(
     normalized_path: str,
     class_name: str | None,
@@ -966,8 +975,8 @@ def generate_report(
             "timestamp_utc": timestamp.isoformat(),
             "device_serial": resolved_serial,
             "source": {
-                "ui_dump_path":    str(ui_dump_path.relative_to(ROOT)),
-                "screenshot_path": str(screenshot_path.relative_to(ROOT)),
+                "ui_dump_path":    _serialize_source_path(ui_dump_path),
+                "screenshot_path": _serialize_source_path(screenshot_path),
             },
             "origin": {
                 "parent_capture_id":     parent_capture_id,

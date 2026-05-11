@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import subprocess
 import shutil
 import signal
 import sys
@@ -74,6 +75,10 @@ from v2_report import generate_session_report  # noqa: E402
 ROOT         = Path(__file__).resolve().parent.parent
 SESSIONS_DIR = ROOT / "output" / "sessions"
 
+# How many times to retry path replay when the arrived app does not match.
+# Each retry navigates back to Home and re-executes the full step sequence.
+_REPLAY_MAX_RETRIES = 2
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -86,6 +91,52 @@ def _make_session_id(serial: str) -> str:
     ts = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%f")[:-3] + "Z"
     safe_serial = serial.replace(":", "_").replace(".", "_")
     return f"session_{ts}_{safe_serial}"
+
+
+def _resolve_serial(explicit_serial: str | None) -> str:
+    """Resolve device serial; require explicit serial only when needed."""
+    if explicit_serial:
+        return explicit_serial
+
+    try:
+        completed = subprocess.run(
+            ["adb", "devices"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "adb executable not found. Install Android SDK Platform Tools and "
+            "ensure 'adb' is on your PATH."
+        ) from exc
+
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"ADB command failed (exit {completed.returncode}): adb devices\n"
+            f"stderr: {completed.stderr.strip()}"
+        )
+
+    devices: list[str] = []
+    for line in completed.stdout.splitlines()[1:]:
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == "device":
+            devices.append(parts[0])
+
+    if not devices:
+        raise RuntimeError(
+            "No connected Android devices found. Connect a device or start an emulator, "
+            "ensure USB debugging is enabled, and run 'adb devices' to confirm."
+        )
+    if len(devices) > 1:
+        raise RuntimeError(
+            f"Multiple devices connected ({', '.join(devices)}). "
+            "Provide --serial <device_serial> to select one."
+        )
+    return devices[0]
 
 
 def _load_snapshot(capture_dir: Path) -> dict[str, Any]:
@@ -240,6 +291,11 @@ def explore(  # noqa: PLR0912, PLR0915  — intentionally a single-function BFS
 ) -> Path:
     """Run a full BFS session. Returns the session directory path."""
     global _interrupted
+
+    if not serial:
+        raise RuntimeError(
+            "No Android device serial resolved. Pass --serial or connect exactly one device."
+        )
 
     session_id  = _make_session_id(serial)
     session_dir = (output_dir or SESSIONS_DIR) / session_id
@@ -447,71 +503,92 @@ def explore(  # noqa: PLR0912, PLR0915  — intentionally a single-function BFS
                     save_registry(session_dir, states, transitions, attempts)
                     continue
 
-                print(
-                    f"[v2_explore]   Replaying {len(replay_steps)}-step path "
-                    f"to {current_state_id} …"
-                )
-                for step in replay_steps:
-                    execute_tap(serial, step["x"], step["y"], command_log)
-                    wait_for_ui_settle(serial, command_log, settle_ms)
+                # Replay path with retries: on each attempt navigate back to Home
+                # and re-execute all path steps before verifying arrival.
+                # This handles transient app-focus drift without aborting the element.
+                # home_sig is a safe typed fallback; the _replay_block_reason guard
+                # ensures we only reach is_same_state after a real arrived_sig is set.
+                pre_tap_sig: str = home_sig
+                _replay_block_reason: str | None = None
 
-                # Capture the live state to get an accurate pre_tap_sig.
-                # Route to a temp dir — replay verification snapshots must not
-                # pollute states_dir (they are not BFS-discovered states).
-                _replay_tmp = Path(tempfile.mkdtemp(prefix="v2_replay_"))
-                try:
-                    verify_cap_dir = generate_report(
-                        serial=serial,
-                        output_dir=_replay_tmp,
-                        adb_root_mode=adb_root_mode,
-                        parent_capture_id=None,
-                        interacted_element_id=None,
-                        action_type=None,
-                    )
-                    verify_snap  = _load_snapshot(verify_cap_dir)
-                    verify_elems = verify_snap.get("elements", [])
-                    arrived_sig  = compute_state_signature(verify_elems)
-                    arrived_pkg  = verify_snap.get("context", {}).get("package_name")
-                except CaptureFatalError as exc:
-                    msg = f"[v2_explore] WARNING: replay verification capture failed: {exc}"
-                    print(msg, file=sys.stderr)
-                    warnings.append(msg)
-                    attempt["outcome"]     = "blocked"
-                    attempt["skip_reason"] = "replay_capture_failed"
-                    attempts.append(attempt)
-                    save_registry(session_dir, states, transitions, attempts)
-                    continue
-                finally:
-                    shutil.rmtree(_replay_tmp, ignore_errors=True)
-
-                # Soft sanity check: skip only if the arrived app package is
-                # entirely different from the stored state's package — that is a
-                # genuine navigation failure (e.g. a system dialog hijacked focus).
-                # Do NOT skip on signature mismatch: the stored state_signature is
-                # a stale snapshot from discovery time; dynamic UI drift (climate,
-                # media, overlays) will always produce a different signature even
-                # when replay correctly lands on the same screen.
                 expected_pkg = next(
                     (s["package_name"] for s in states if s["state_id"] == current_state_id),
                     None,
                 )
-                if expected_pkg and arrived_pkg and arrived_pkg != expected_pkg:
-                    msg = (
-                        f"[v2_explore] WARNING: replay landed in wrong app "
-                        f"(expected {expected_pkg!r}, arrived {arrived_pkg!r}) "
-                        f"— skipping tap on {element_id}"
+
+                for _retry in range(_REPLAY_MAX_RETRIES):
+                    if _retry > 0:
+                        print(
+                            f"[v2_explore]   Replay retry {_retry}/{_REPLAY_MAX_RETRIES - 1} "
+                            f"for {current_state_id} …"
+                        )
+                        navigate_to_home(serial, command_log, warnings, settle_ms)
+
+                    print(
+                        f"[v2_explore]   Replaying {len(replay_steps)}-step path "
+                        f"to {current_state_id} …"
                     )
-                    print(msg, file=sys.stderr)
-                    warnings.append(msg)
+                    for step in replay_steps:
+                        execute_tap(serial, step["x"], step["y"], command_log)
+                        wait_for_ui_settle(serial, command_log, settle_ms)
+
+                    # Capture the live state to get an accurate pre_tap_sig.
+                    # Route to a temp dir — replay verification snapshots must not
+                    # pollute states_dir (they are not BFS-discovered states).
+                    _replay_tmp = Path(tempfile.mkdtemp(prefix="v2_replay_"))
+                    try:
+                        verify_cap_dir = generate_report(
+                            serial=serial,
+                            output_dir=_replay_tmp,
+                            adb_root_mode=adb_root_mode,
+                            parent_capture_id=None,
+                            interacted_element_id=None,
+                            action_type=None,
+                        )
+                        verify_snap  = _load_snapshot(verify_cap_dir)
+                        verify_elems = verify_snap.get("elements", [])
+                        arrived_sig  = compute_state_signature(verify_elems)
+                        arrived_pkg  = verify_snap.get("context", {}).get("package_name")
+                    except CaptureFatalError as exc:
+                        msg = f"[v2_explore] WARNING: replay verification capture failed: {exc}"
+                        print(msg, file=sys.stderr)
+                        warnings.append(msg)
+                        _replay_block_reason = "replay_capture_failed"
+                        break  # capture error is unlikely to improve on retry
+                    finally:
+                        shutil.rmtree(_replay_tmp, ignore_errors=True)
+
+                    # Soft sanity check: skip only if the arrived app package is
+                    # entirely different from the stored state's package — that is a
+                    # genuine navigation failure (e.g. a system dialog hijacked focus).
+                    # Do NOT skip on signature mismatch: the stored state_signature is
+                    # a stale snapshot from discovery time; dynamic UI drift (climate,
+                    # media, overlays) will always produce a different signature even
+                    # when replay correctly lands on the same screen.
+                    if expected_pkg and arrived_pkg and arrived_pkg != expected_pkg:
+                        msg = (
+                            f"[v2_explore] WARNING: replay landed in wrong app "
+                            f"(expected {expected_pkg!r}, arrived {arrived_pkg!r}) "
+                            f"— attempt {_retry + 1}/{_REPLAY_MAX_RETRIES} for {element_id}"
+                        )
+                        print(msg, file=sys.stderr)
+                        warnings.append(msg)
+                        _replay_block_reason = "replay_wrong_app"
+                        continue  # retry with a fresh Home navigation
+
+                    # Arrived at the expected app — replay succeeded.
+                    # arrived_sig is the LIVE current state, always accurate for
+                    # no_change detection after the tap, regardless of drift.
+                    pre_tap_sig = arrived_sig
+                    _replay_block_reason = None
+                    break
+
+                if _replay_block_reason is not None:
                     attempt["outcome"]     = "blocked"
-                    attempt["skip_reason"] = "replay_wrong_app"
+                    attempt["skip_reason"] = _replay_block_reason
                     attempts.append(attempt)
                     save_registry(session_dir, states, transitions, attempts)
                     continue
-
-                # arrived_sig is the LIVE current state — always accurate for
-                # no_change detection after the tap, regardless of drift.
-                pre_tap_sig = arrived_sig
 
             tap_started = _now()
             tap_ok      = execute_tap(serial, x, y, command_log)
@@ -684,8 +761,9 @@ def main() -> int:
     args = _parse_args()
 
     try:
+        resolved_serial = _resolve_serial(args.serial)
         session_dir = explore(
-            serial=args.serial,
+            serial=resolved_serial,
             adb_root_mode=args.adb_root,
             max_states=args.max_states,
             max_transitions=args.max_transitions,

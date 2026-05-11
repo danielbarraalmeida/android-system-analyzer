@@ -189,3 +189,36 @@ def test_end_to_end_writes_three_artifacts(
     payload = json.loads((capture_dir / "screen-snapshot.json").read_text(encoding="utf-8"))
     assert payload["summary"]["element_count"] == 10
     assert payload["diagnostics"]["validation"]["schema_validation_passed"] is True
+
+
+def test_end_to_end_allows_temp_output_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    sample_xml_path: Path,
+) -> None:
+    """generate_report must not fail when capture artifacts live outside repository ROOT."""
+
+    def fake_ui_dump(serial, capture_dir, command_log):
+        dest = capture_dir / "window_dump.xml"
+        dest.write_bytes(sample_xml_path.read_bytes())
+        return dest
+
+    def fake_screenshot(serial, capture_dir, command_log):
+        dest = capture_dir / "screen.png"
+        dest.write_bytes(b"\x89PNG\r\n\x1a\n")
+        return dest
+
+    monkeypatch.setattr(csr, "_resolve_serial",       lambda log, s: "TEST_SERIAL")
+    monkeypatch.setattr(csr, "_ensure_adb_root",      lambda *a, **k: None)
+    monkeypatch.setattr(csr, "_capture_ui_dump",      fake_ui_dump)
+    monkeypatch.setattr(csr, "_capture_screenshot",   fake_screenshot)
+    monkeypatch.setattr(csr, "_get_package_activity", lambda *a, **k: ("com.example.app", ".MainActivity"))
+    monkeypatch.setattr(csr, "_get_screen_size",      lambda *a, **k: (1080, 1920))
+    monkeypatch.setattr(csr, "_get_screen_density",   lambda *a, **k: 480)
+
+    capture_dir = csr.generate_report(serial="TEST_SERIAL", output_dir=tmp_path)
+
+    payload = json.loads((capture_dir / "screen-snapshot.json").read_text(encoding="utf-8"))
+    source = payload["capture"]["source"]
+    assert source["ui_dump_path"].endswith("window_dump.xml")
+    assert source["screenshot_path"].endswith("screen.png")
