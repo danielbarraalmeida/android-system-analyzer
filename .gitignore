@@ -18,10 +18,14 @@ env/
 .coverage
 htmlcov/
 
-# Output artifacts (captures, sessions, test results)
+# Output artifacts
 output/captures/
 output/sessions/
 output/test-results/
+output/rag-sessions/
+output/knowledge.db
+output/knowledge.db-journal
+output/agentic-llm/
 
 # Temporary files
 tmp_*.xml

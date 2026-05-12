@@ -22,15 +22,15 @@ def read_requirements() -> list[str]:
 
 setup(
     name="android-system-analyzer",
-    version="0.1.0",
-    description="Android UI element extraction and reporting toolkit",
+    version="0.2.0",
+    description="RAG-powered Android system inspector (root-privileged ADB + LLM + SQLite knowledge store).",
     long_description=(ROOT / "README.md").read_text(encoding="utf-8"),
     long_description_content_type="text/markdown",
     python_requires=">=3.10",
     install_requires=read_requirements(),
     scripts=[
+        "scripts/rag_run.py",
         "scripts/current_screen_report.py",
-        "scripts/diff_captures.py",
-        "scripts/run_capture_pipeline.py",
+        "scripts/run_tests_report.py",
     ],
 )

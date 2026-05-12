@@ -29,8 +29,3 @@ def fixtures_dir() -> Path:
 @pytest.fixture(scope="session")
 def sample_xml_path() -> Path:
     return FIXTURES / "sample_window_dump.xml"
-
-
-@pytest.fixture(scope="session")
-def schema_path() -> Path:
-    return ROOT / "templates" / "screen-snapshot.schema.json"

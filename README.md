@@ -1,147 +1,194 @@
 # Android System Analyzer
 
-BFS-based Android UI explorer using ADB: captures every screen, element, and transition into rich JSON + HTML reports.
+> **Branch `agentic-scrapper`** — the project has been refactored away
+> from UI scraping. It is now a **RAG-powered Android system inspector**:
+> a local LLM drives a small set of root-privileged ADB tools
+> (`getprop`, `pm`, `dumpsys`, `service list`, `settings`, …) to map
+> the device's system state, and every session is indexed into a
+> persistent SQLite knowledge store. Subsequent runs are seeded with
+> prior findings via embedding-based retrieval.
 
-Starting from the device Home screen, the tool performs a bounded BFS traversal — tapping every eligible element, capturing the resulting UI state, and repeating for each new state discovered — producing structured JSON, Markdown, and HTML artifacts for every screen encountered.
+UI exploration (taps, swipes, BFS) is **out of scope** on this branch.
 
-## Features
+## What it does
 
-- **v2 interaction-driven exploration** — BFS from Home, bounded by max states, transitions, depth, and timeout.
-- **Full element extraction** — every UIAutomator node captured with no filtering or truncation.
-- **State deduplication** — screens are fingerprinted; revisited states are linked, not re-captured.
-- **Rich output formats** — `screen-snapshot.json`, `report.md`, `report.html` per state; session-level manifest and HTML report.
-- **Single-screen capture** — point-in-time capture of the current active screen (v1 mode).
-- **Diff tool** — optional comparison between two captures.
-- **Test suite** — unit and component tests with HTML report generation.
+- Connects to a single Android device over ADB and enables root.
+- Hands a curated tool surface to a local LLM (OpenAI-compatible
+  endpoint — default LM Studio).
+- The model issues breadth-first system inspection calls and records
+  structured facts via a `note(category, key, value)` tool.
+- Every property, package, service, setting, dumpsys excerpt and free-
+  text fact is written to `output/knowledge.db`.
+- Per-session artifacts (transcript, summary, raw command outputs)
+  land in `output/rag-sessions/<session_id>/`.
+- On the next session for the same device, a "Prior knowledge" block
+  is built from SQLite (recent facts + cosine-similar findings) and
+  injected into the system prompt — so the model refines rather than
+  repeats.
 
-## Repository Layout
+## Repository layout
 
 ```
 scripts/
-  current_screen_report.py   # v1: capture the current active screen
-  v2_explore.py              # v2: BFS interaction-driven exploration
-  v2_navigator.py            # tap, back, home, settle, state-sig helpers
-  v2_registry.py             # persist states/transitions/attempts registries
-  v2_report.py               # generate session-level HTML/MD report
-  run_capture_pipeline.py    # pipeline wrapper (capture + optional diff)
-  diff_captures.py           # compare two screen-snapshot.json files
-  collect_system_context.py  # gather device/OS/app context via ADB
-  run_tests_report.py        # run pytest and generate HTML test report
-
-templates/
-  screen-snapshot.schema.json      # element capture schema
-  session-manifest.schema.json     # session BFS manifest schema
-  system-context.schema.json       # device context schema
-  report-template.html / .md       # per-screen report templates
-  session-report-template.html     # session-level report template
-  test-report-template.html        # test results HTML template
+  rag_run.py                # CLI entry point
+  current_screen_report.py  # internal ADB primitives (kept as a library)
+  v2_navigator.py           # internal navigation helpers (HOME / settle)
+  run_tests_report.py       # pytest → HTML report harness
+  agent/
+    runner.py               # agent loop (RAG read → tools → RAG write)
+    tools.py                # 13 root-privileged system tools
+    schemas.py              # OpenAI tool schemas
+    llm_client.py           # chat + embeddings wrapper
+    prompts/
+      system.md             # system analyst persona
+      default_goal.md       # default mission
+      dumpsys_sections.md   # curated allowlist reference
+    knowledge/
+      store.py              # SQLite schema + cosine search
+      indexer.py            # session → store (with batched embeddings)
+      retriever.py          # store → system-prompt context block
 
 .github/
-  agents/         # specialized Copilot agents (see Agents section)
-  instructions/   # always-on scoped behavior rules
-  prompts/        # reusable task entry points
-  skills/         # domain skills (android-device-manager-adb)
+  agents/                   # specialised Copilot agents
+  instructions/             # always-on scoped behaviour rules
+  skills/                   # domain skills (android-device-manager-adb)
 
 output/
-  captures/       # v1 single-screen captures
-  sessions/       # v2 BFS sessions (states, registries, session report)
+  rag-sessions/<id>/        # per-run artifacts (gitignored)
+  knowledge.db              # cumulative SQLite store (gitignored)
+  test-results/             # pytest output (gitignored)
 
 tests/
-  unit/           # unit tests for helpers, transport, renderers
-  component/      # component tests for pipeline and orchestration
+  unit/                     # store, indexer, retriever, tools, runner
+  component/                # run_tests_report harness
 ```
 
-## Agents
+## Setup
 
-| Agent | Purpose |
-|-------|---------|
-| `android-scrape-planner` | Plan exhaustive UI element extraction and interaction workflows |
-| `environment-mentor` | Create and maintain Copilot customization files |
-| `pipeline-runner` | Execute capture pipeline, diagnose ADB/device issues |
-| `python-implementer` | Implement v2 interaction-driven capture in Python |
-| `report-designer` | Improve HTML report templates and visual quality |
-| `test-engineer` | Design, implement, and run tests; produce HTML test reports |
-| `git-keeper` | Keep README, CHANGELOG, and git artifacts in sync with the code |
-
-## Python Environment Setup
-
-Requires Python 3.10+ and a connected Android device with ADB enabled.
-
-**Windows (Git Bash / PowerShell):**
+Python 3.10+ and a connected, root-capable Android device.
 
 ```bash
 python -m venv .venv
-source .venv/Scripts/activate       # Git Bash
-# .\.venv\Scripts\Activate.ps1     # PowerShell
+source .venv/Scripts/activate         # Git Bash on Windows
+# .\.venv\Scripts\Activate.ps1       # PowerShell
 pip install --upgrade pip
 pip install -r requirements.txt
 pip install -e .
 ```
 
-**Linux / macOS:**
+## LLM endpoint
+
+Configured via `scripts/agent/llm_client.py`. Defaults:
+
+| Field             | Default                                           |
+|-------------------|---------------------------------------------------|
+| `base_url`        | `http://127.0.0.1:1234/v1`               |
+| `model`           | `google/gemma-4-e4b`                              |
+| `embedding_model` | `text-embedding-nomic-embed-text-v1.5`            |
+| `api_key`         | `local` (any non-empty string)                    |
+
+All four are overridable via CLI flags. Any OpenAI-compatible server
+exposing both `/v1/chat/completions` and `/v1/embeddings` works
+(LM Studio, llama.cpp `--api-server`, vLLM, Ollama with the OpenAI
+shim, etc.).
+
+If the embeddings endpoint is unreachable, the indexer stores rows with
+`embedding = NULL`. The session still completes; semantic retrieval is
+just disabled for those rows.
+
+## Run a session
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-pip install -e .
+python scripts/rag_run.py --serial 10.56.19.39:5555
 ```
 
-## Single-Screen Capture (v1)
+Useful flags:
 
-Captures the current active screen and writes three artifacts.
+| Flag                       | Default                      | Purpose |
+|----------------------------|------------------------------|---------|
+| `--serial`                 | auto-resolve                 | ADB serial. |
+| `--output-root`            | `output/rag-sessions`        | Where session_dir lands. |
+| `--db-path`                | `output/knowledge.db`        | SQLite store path. |
+| `--no-rag`                 | off                          | Disable knowledge store entirely. |
+| `--require-root`           | `required`                   | `required` \| `preferred` \| `skipped`. |
+| `--allow-arbitrary-shell`  | off                          | Let `run_shell` bypass the allowlist (be careful). |
+| `--goal` / `--goal-file`   | `default_goal.md`            | Override the mission. |
+| `--max-turns`              | 25                           | LLM turn budget. |
+| `--timeout-seconds`        | 600                          | Hard wall-clock cap. |
+| `--base-url` / `--model` / `--api-key` / `--embedding-model` | — | Endpoint overrides. |
+| `--quiet`                  | off                          | Suppress live progress. |
+
+## Tool surface
+
+The model sees the following tools (full schemas in
+`scripts/agent/schemas.py`):
+
+| Tool                     | Purpose |
+|--------------------------|---------|
+| `get_device_properties`  | `getprop` → identity / build / hardware. Pre-run at session start. |
+| `list_packages`          | `pm list packages` filtered by `third_party \| system \| all \| …`. |
+| `inspect_package`        | `dumpsys package <pkg>` → version, permissions, activities. |
+| `list_services`          | `service list` → binder service registry. |
+| `dumpsys`                | Allowlisted sections (audio, display, connectivity, …). |
+| `read_settings`          | `settings list <namespace>` (system / secure / global). |
+| `list_processes`         | `ps -A`. |
+| `read_file`              | `cat` (root) of an absolute device path. |
+| `list_dir`               | `ls -la` of an absolute device path. |
+| `run_shell`              | Free-form shell, **allowlisted** by default. |
+| `capture_home_screen`    | One optional UI snapshot of the launcher. |
+| `note`                   | Record a structured `(category, key, value)` fact. |
+| `finish`                 | End the session with a markdown summary. |
+
+## Per-session artifacts
+
+`output/rag-sessions/<session_id>/`:
+
+```
+summary.md          # final markdown summary (model's or fallback)
+transcript.json     # full message + tool-call log
+command_log.json    # every adb invocation with timing + exit codes
+manifest.json       # session metadata + indexed counts + warnings
+warnings.txt        # (only if non-empty)
+raw/                # one file per tool call's raw output
+screens/            # optional UI snapshot JSON (if capture_home_screen used)
+screenshots/        # optional PNG
+```
+
+## Knowledge store
+
+SQLite, nine tables (`device`, `properties`, `packages`, `services`,
+`settings`, `dumpsys_excerpts`, `facts`, `findings`, `screen_snapshots`).
+Embeddings are stored as JSON arrays in `TEXT` columns; cosine
+similarity is computed in pure Python. No external vector DB.
+
+Inspect manually:
 
 ```bash
-python scripts/current_screen_report.py
-python scripts/current_screen_report.py --serial <device_serial>
+sqlite3 output/knowledge.db ".tables"
+sqlite3 output/knowledge.db "SELECT category, key, value FROM facts;"
 ```
 
-Output written to `output/captures/<capture-id>/`:
-- `screen-snapshot.json`
-- `report.md`
-- `report.html`
-
-## BFS Exploration (v2)
-
-Explores the device UI from Home, tapping elements and capturing each resulting state.
+## Tests
 
 ```bash
-python scripts/v2_explore.py --serial <device_serial>
+python -m pytest tests -q                  # full suite (~73 tests)
+python -m pytest tests/unit -q             # just unit tests
+python scripts/run_tests_report.py         # → output/test-results/test-report.html
 ```
 
-Key options:
+## Copilot agents
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--max-states` | 50 | Stop after N unique states |
-| `--max-transitions` | 200 | Stop after N transitions |
-| `--max-depth` | 1 | Only explore states ≤ N taps from Home |
-| `--timeout-seconds` | 3600 | Abort after N seconds |
-| `--settle-ms` | 2000 | Wait after each interaction (ms) |
-| `--output-dir` | `output/sessions/` | Override session output directory |
+| Agent                | Purpose |
+|----------------------|---------|
+| `system-analyzer`    | Drive `scripts/rag_run.py` sessions, interpret results. |
+| `python-implementer` | Add or modify Python code in this repo. |
+| `test-engineer`      | Author and run tests. |
+| `report-designer`    | Improve HTML report templates. |
+| `environment-mentor` | Maintain Copilot customization files. |
+| `git-keeper`         | Keep README / CHANGELOG / commit hygiene. |
 
-Output written to `output/sessions/<session-id>/`:
-- `session-manifest.json` — full BFS graph (states, transitions, attempts)
-- `system-context.json` — device/OS context
-- `session-report.html` / `session-report.md`
-- `states/<capture-id>/` — per-state artifacts
+## Status
 
-## Diff Tool
-
-Compare two captures (auxiliary, opt-in):
-
-```bash
-python scripts/diff_captures.py \
-  output/captures/<old-id>/screen-snapshot.json \
-  output/captures/<new-id>/screen-snapshot.json \
-  --format md --output output/captures/diff-report.md
-```
-
-## Run Tests
-
-```bash
-python scripts/run_tests_report.py
-```
-
-Produces `output/test-results/test-report.html` and `output/test-results/junit.xml`.
+Branch `agentic-scrapper` — RAG system analyzer is the only supported
+workflow. The legacy v1 / v2 UI scrapers and the LLM UI-driver have
+been removed.

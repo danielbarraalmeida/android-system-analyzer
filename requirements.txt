@@ -1,9 +1,13 @@
-# Android System Analyzer Python dependencies
+# Android System Analyzer — RAG-powered system inspector
 #
-# jsonschema is used by current_screen_report.py to validate generated JSON
-# artifacts against templates/screen-snapshot.schema.json at capture time.
-# Schema validation is part of the v1 contract (§2.5 / §13 acceptance checklist).
-jsonschema>=4.0
+# OpenAI-compatible client used for both chat completions (tool-calling)
+# and embeddings (knowledge store retrieval).
+openai>=1.40
 
-# Test harness dependencies (see scripts/run_tests_report.py and tests/).
+# Pillow is used to downscale the optional home-screen screenshot before
+# sending it to the model so the multimodal context stays compact.
+pillow>=10.0
+
+# Test harness (see scripts/run_tests_report.py and tests/).
 pytest>=8.0
+
