@@ -11,3 +11,8 @@ pillow>=10.0
 # Test harness (see scripts/run_tests_report.py and tests/).
 pytest>=8.0
 
+# Local web UI (rag_run.py serve). Pulls in starlette + uvicorn +
+# pydantic. Only required when running the web interface; the CLI
+# inspect / ask flows work without it.
+fastapi[standard]>=0.110
+

@@ -175,12 +175,24 @@ class SearchHit:
 class KnowledgeStore:
     """Thin SQLite wrapper. Construct once per process, share across runs."""
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        check_same_thread: bool = True,
+    ) -> None:
         self.db_path = str(db_path)
         # ``:memory:`` is tolerated for tests.
         if self.db_path != ":memory:":
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(self.db_path)
+        # ``check_same_thread=False`` is required when the same store
+        # instance is shared between FastAPI request threads and the
+        # background inspection thread. SQLite still serialises writes
+        # via its own lock, so this stays safe as long as callers do
+        # not run concurrent transactions.
+        self.conn = sqlite3.connect(
+            self.db_path, check_same_thread=check_same_thread,
+        )
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(_SCHEMA)
         self.conn.commit()

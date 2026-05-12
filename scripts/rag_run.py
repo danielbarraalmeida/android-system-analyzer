@@ -1,27 +1,13 @@
 """CLI entry point for the RAG-powered Android System Analyzer.
 
-Usage examples
---------------
-    python scripts/rag_run.py
-    python scripts/rag_run.py --serial 10.56.19.39:5555 --max-turns 30
-    python scripts/rag_run.py --no-rag --goal "Just enumerate packages"
-    python scripts/rag_run.py --allow-arbitrary-shell --base-url http://...
+Subcommands
+-----------
+    python scripts/rag_run.py inspect [...]   # run a single inspection session
+    python scripts/rag_run.py serve   [...]   # serve the local web UI
+    python scripts/rag_run.py ask     [...]   # one-shot retrieval Q&A
 
-Flags
------
-    --serial                  ADB serial (auto-resolves if single device).
-    --output-root             Where to write session_dir (default output/rag-sessions).
-    --db-path                 SQLite knowledge DB (default output/knowledge.db).
-    --no-rag                  Skip the knowledge store entirely.
-    --require-root            adb root mode: required|preferred|skipped (default required).
-    --allow-arbitrary-shell   Let `run_shell` execute non-allowlisted commands.
-    --goal                    Goal text (otherwise default_goal.md is used).
-    --goal-file               Path to a markdown file containing the goal.
-    --max-turns               Max LLM turns (default 25).
-    --timeout-seconds         Hard wall-clock cap (default 600).
-    --settle-ms               UI settle delay if capture_home_screen is used.
-    --base-url / --model / --api-key / --embedding-model
-                              Override the LLM endpoint or models.
+Back-compat: invoking with flags but no subcommand
+(``python scripts/rag_run.py --serial X``) defaults to ``inspect``.
 """
 
 from __future__ import annotations
@@ -41,17 +27,27 @@ from agent.llm_client import (
     LLMClient,
 )
 from agent.runner import Budget, run_agent
-from agent.tools import open_session
+from agent.tools  import open_session
 
 
-def _parse_args(argv: list[str]) -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        prog="rag_run",
-        description="RAG-powered Android System Analyzer (root-privileged).",
-    )
+_SUBCOMMANDS = {"inspect", "serve", "ask"}
+
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+
+def _add_llm_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--base-url",        default=DEFAULT_BASE_URL)
+    p.add_argument("--model",           default=DEFAULT_MODEL)
+    p.add_argument("--api-key",         default=DEFAULT_API_KEY)
+    p.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+
+
+def _add_inspect_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--serial", default=None,
                    help="ADB serial. Auto-resolved if exactly one device is connected.")
-    p.add_argument("--output-root", default="output/rag-sessions",
+    p.add_argument("--output-root", default="output/sessions",
                    help="Directory under which to create the session_dir.")
     p.add_argument("--db-path", default="output/knowledge.db",
                    help="SQLite path for the cumulative knowledge store.")
@@ -67,17 +63,60 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
                    help="Inline goal text. If omitted, default_goal.md is used.")
     p.add_argument("--goal-file", default=None,
                    help="Path to a markdown file containing the goal.")
-    p.add_argument("--max-turns", type=int, default=25)
+    p.add_argument("--max-turns",       type=int,   default=25)
     p.add_argument("--timeout-seconds", type=float, default=600.0)
-    p.add_argument("--settle-ms", type=int, default=1500)
-    p.add_argument("--base-url", default=DEFAULT_BASE_URL)
-    p.add_argument("--model", default=DEFAULT_MODEL)
-    p.add_argument("--api-key", default=DEFAULT_API_KEY)
-    p.add_argument("--embedding-model", default=DEFAULT_EMBEDDING_MODEL)
+    p.add_argument("--settle-ms",       type=int,   default=1500)
     p.add_argument("--quiet", action="store_true",
                    help="Suppress live progress logging.")
-    return p.parse_args(argv)
+    _add_llm_args(p)
 
+
+def _add_serve_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--host", default="127.0.0.1",
+                   help="Bind address (default 127.0.0.1 — do not expose).")
+    p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--db-path",     default="output/knowledge.db")
+    p.add_argument("--output-root", default="output/sessions")
+    p.add_argument("--reload", action="store_true",
+                   help="Auto-reload on code changes (dev only).")
+    _add_llm_args(p)
+
+
+def _add_ask_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("question",
+                   help="Question to ask the RAG knowledge store.")
+    p.add_argument("--serial",  required=True,
+                   help="Device serial whose facts to search.")
+    p.add_argument("--db-path", default="output/knowledge.db")
+    p.add_argument("--top-k",   type=int, default=5)
+    _add_llm_args(p)
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="rag_run",
+        description="RAG-powered Android System Analyzer.",
+    )
+    sub = p.add_subparsers(dest="cmd")
+    _add_inspect_args(sub.add_parser("inspect",
+                      help="Run a single inspection session."))
+    _add_serve_args(sub.add_parser("serve",
+                    help="Serve the local web UI."))
+    _add_ask_args(sub.add_parser("ask",
+                  help="One-shot retrieval Q&A over the knowledge store."))
+    return p
+
+
+def _normalize_argv(argv: list[str]) -> list[str]:
+    """Insert 'inspect' for back-compat flag-only invocations."""
+    if not argv or argv[0] in _SUBCOMMANDS or argv[0] in ("-h", "--help"):
+        return argv
+    return ["inspect", *argv]
+
+
+# ---------------------------------------------------------------------------
+# inspect
+# ---------------------------------------------------------------------------
 
 def _load_goal(args: argparse.Namespace) -> str:
     if args.goal_file:
@@ -87,10 +126,7 @@ def _load_goal(args: argparse.Namespace) -> str:
     return ""  # runner falls back to default_goal.md
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = _parse_args(argv if argv is not None else sys.argv[1:])
-
-    # ---- Open session (resolves serial, attempts adb root) ----------------
+def _run_inspect(args: argparse.Namespace) -> int:
     try:
         session = open_session(
             serial=args.serial,
@@ -108,7 +144,6 @@ def main(argv: list[str] | None = None) -> int:
     print(f"• root mode:   {args.require_root}")
     print(f"• arbitrary shell: {args.allow_arbitrary_shell}")
 
-    # ---- LLM client -------------------------------------------------------
     llm = LLMClient(
         model=args.model,
         base_url=args.base_url,
@@ -116,7 +151,6 @@ def main(argv: list[str] | None = None) -> int:
         embedding_model=args.embedding_model,
     )
 
-    # ---- Knowledge store --------------------------------------------------
     store = None
     if not args.no_rag:
         from agent.knowledge import KnowledgeStore
@@ -125,12 +159,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print("• knowledge:   DISABLED (--no-rag)")
 
-    # ---- Run --------------------------------------------------------------
     budget = Budget(max_turns=args.max_turns,
                     timeout_seconds=args.timeout_seconds)
-    log = None
-    if args.quiet:
-        log = lambda _m: None  # noqa: E731
+    log = (lambda _m: None) if args.quiet else None
 
     result = run_agent(
         session=session,
@@ -141,7 +172,6 @@ def main(argv: list[str] | None = None) -> int:
         log=log,
     )
 
-    # ---- Persist a JSON manifest of the run -------------------------------
     manifest = {
         "session_dir":     str(result.session_dir),
         "serial":          session.serial,
@@ -155,16 +185,109 @@ def main(argv: list[str] | None = None) -> int:
     (session.session_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8",
     )
-
     print("\n— complete —")
     print(json.dumps(manifest, indent=2))
 
     if store is not None:
         store.close()
 
-    # Non-zero exit only for hard failures (unreachable LLM, etc.).
     return 0 if result.stop.reason in ("finish", "model_summary",
                                        "budget_exhausted", "timeout") else 1
+
+
+# ---------------------------------------------------------------------------
+# serve
+# ---------------------------------------------------------------------------
+
+def _run_serve(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn  # type: ignore
+    except ImportError:
+        print(
+            "error: fastapi[standard] is not installed. Run "
+            "'pip install -r requirements.txt' first.",
+            file=sys.stderr,
+        )
+        return 2
+
+    from agent.web import create_app
+
+    def _llm_factory() -> LLMClient:
+        return LLMClient(
+            model=args.model,
+            base_url=args.base_url,
+            api_key=args.api_key,
+            embedding_model=args.embedding_model,
+        )
+
+    app = create_app(
+        db_path=args.db_path,
+        output_root=args.output_root,
+        llm_factory=_llm_factory,
+    )
+
+    print(f"• serving on http://{args.host}:{args.port}/")
+    print(f"• db_path:    {args.db_path}")
+    print(f"• output:     {args.output_root}")
+    print("• bound to localhost only; do NOT expose this port.")
+    uvicorn.run(app, host=args.host, port=args.port, reload=args.reload,
+                log_level="info")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# ask
+# ---------------------------------------------------------------------------
+
+def _run_ask(args: argparse.Namespace) -> int:
+    from agent.knowledge import KnowledgeStore
+    from agent.web.ask   import answer_question
+
+    llm = LLMClient(
+        model=args.model,
+        base_url=args.base_url,
+        api_key=args.api_key,
+        embedding_model=args.embedding_model,
+    )
+    store = KnowledgeStore(args.db_path)
+    try:
+        result = answer_question(
+            store=store, llm=llm,
+            serial=args.serial,
+            question=args.question,
+            top_k=args.top_k,
+        )
+    finally:
+        store.close()
+
+    print(result.answer)
+    if result.citations:
+        print("\n— citations —")
+        for i, c in enumerate(result.citations, 1):
+            print(f"[{i}] ({c.category}) {c.key} = {c.value[:100]}"
+                  f"{'…' if len(c.value) > 100 else ''}"
+                  f"  (score {c.score})")
+    if result.warnings:
+        for w in result.warnings:
+            print(f"warning: {w}", file=sys.stderr)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
+
+def main(argv: list[str] | None = None) -> int:
+    raw = argv if argv is not None else sys.argv[1:]
+    args = _build_parser().parse_args(_normalize_argv(raw))
+    if args.cmd == "inspect":
+        return _run_inspect(args)
+    if args.cmd == "serve":
+        return _run_serve(args)
+    if args.cmd == "ask":
+        return _run_ask(args)
+    _build_parser().print_help()
+    return 1
 
 
 if __name__ == "__main__":

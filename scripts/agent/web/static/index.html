@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Android System Analyzer</title>
+<style>
+:root {
+  --bg:        #0f1115;
+  --panel:     #161a21;
+  --panel-2:   #1d222b;
+  --border:    #262d39;
+  --text:      #d8dee9;
+  --muted:     #8a93a3;
+  --accent:    #6cb6ff;
+  --accent-2:  #79e3a5;
+  --warn:      #f0b86e;
+  --err:       #f25f5f;
+  --mono: ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+  font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+  font-size: 14px; line-height: 1.5; height: 100%; }
+a { color: var(--accent); }
+button { font-family: inherit; cursor: pointer; }
+
+header {
+  padding: 14px 22px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 18px;
+  background: var(--panel);
+}
+header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+header .status { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+  margin-right: 6px; vertical-align: middle; background: var(--muted); }
+.dot.ok  { background: var(--accent-2); }
+.dot.err { background: var(--err); }
+
+main { display: grid; grid-template-columns: 260px 1fr 1fr; height: calc(100vh - 51px); }
+section { border-right: 1px solid var(--border); overflow: auto; }
+section:last-child { border-right: none; }
+section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted); margin: 14px 18px 8px; font-weight: 600; }
+
+/* Devices rail */
+.device { padding: 10px 18px; cursor: pointer; border-bottom: 1px solid var(--border); }
+.device:hover { background: var(--panel-2); }
+.device.active { background: var(--panel-2); border-left: 3px solid var(--accent); padding-left: 15px; }
+.device .serial { font-family: var(--mono); font-size: 13px; }
+.device .meta   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.device .pills  { margin-top: 4px; display: flex; gap: 6px; }
+.pill { font-size: 11px; padding: 1px 7px; border-radius: 10px;
+  background: var(--panel); color: var(--muted); }
+
+/* Panels */
+.panel-body { padding: 14px 18px 24px; }
+textarea, input {
+  width: 100%; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px; font-family: inherit; font-size: 13px;
+  resize: vertical;
+}
+textarea { min-height: 70px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+.row label { font-size: 12px; color: var(--muted); }
+button.primary {
+  background: var(--accent); color: #0a0d12; border: 0; padding: 8px 14px;
+  border-radius: 6px; font-weight: 600;
+}
+button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+button.ghost {
+  background: transparent; color: var(--text); border: 1px solid var(--border);
+  padding: 7px 12px; border-radius: 6px;
+}
+
+/* Ask result */
+.answer {
+  margin-top: 14px; padding: 12px 14px; background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 8px;
+  white-space: pre-wrap;
+}
+.citations { margin-top: 12px; display: grid; gap: 8px; }
+.citation {
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px; background: var(--panel);
+  font-size: 12px;
+}
+.citation .head { display: flex; justify-content: space-between; color: var(--muted); }
+.citation .cat  { color: var(--accent-2); font-family: var(--mono); }
+.citation .val  { margin-top: 4px; color: var(--text); white-space: pre-wrap;
+  font-family: var(--mono); font-size: 12px; }
+
+/* Inspect log */
+pre.log {
+  background: #0a0d12; border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px 12px; max-height: 60vh; overflow: auto;
+  font-family: var(--mono); font-size: 12px; line-height: 1.45;
+  white-space: pre-wrap; word-break: break-word;
+}
+.log .ev-done { color: var(--accent-2); }
+.log .ev-err  { color: var(--err); }
+.summary {
+  margin-top: 10px; padding: 10px 12px; border-radius: 6px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  font-family: var(--mono); font-size: 12px;
+}
+.summary a { font-family: var(--mono); }
+.empty { color: var(--muted); font-style: italic; padding: 10px 18px; }
+.warn  { color: var(--warn); font-size: 12px; margin-top: 6px; }
+.err   { color: var(--err);  font-size: 12px; margin-top: 6px; }
+.hint  { color: var(--muted); font-size: 12px; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Android System Analyzer</h1>
+  <span class="status"><span id="health-dot" class="dot"></span><span id="health-text">checking…</span></span>
+  <span class="status" id="db-path"></span>
+</header>
+
+<main>
+  <!-- Devices -->
+  <section id="devices">
+    <h2>Devices</h2>
+    <div id="device-list"><p class="empty">loading…</p></div>
+  </section>
+
+  <!-- Ask -->
+  <section id="ask">
+    <h2>Ask the knowledge store</h2>
+    <div class="panel-body">
+      <p class="hint">Selected: <span id="ask-serial" style="font-family: var(--mono);">(none)</span></p>
+      <textarea id="ask-q" placeholder="e.g. What root-capable services does this device expose?"></textarea>
+      <div class="row">
+        <label>top-k <input type="number" id="ask-k" value="5" min="1" max="20" style="width: 70px;"></label>
+        <button class="primary" id="ask-btn">Ask</button>
+      </div>
+      <div id="ask-output"></div>
+    </div>
+  </section>
+
+  <!-- Inspect -->
+  <section id="inspect">
+    <h2>Launch inspection</h2>
+    <div class="panel-body">
+      <p class="hint">Selected: <span id="ins-serial" style="font-family: var(--mono);">(none)</span></p>
+      <textarea id="ins-goal" placeholder="(empty = default goal from prompts/default_goal.md)"></textarea>
+      <div class="row">
+        <label>max-turns <input type="number" id="ins-turns" value="25" min="1" style="width: 80px;"></label>
+        <label>timeout (s) <input type="number" id="ins-timeout" value="600" min="30" style="width: 90px;"></label>
+        <label>root
+          <select id="ins-root">
+            <option value="preferred" selected>preferred</option>
+            <option value="required">required</option>
+            <option value="skipped">skipped</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="ins-norag"> no RAG</label>
+        <label><input type="checkbox" id="ins-shell"> allow arbitrary shell</label>
+      </div>
+      <div class="row">
+        <button class="primary" id="ins-btn">Launch</button>
+      </div>
+      <div id="ins-output"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let selected = null;
+
+// ---------------------------------------------------------------------- health
+async function pingHealth() {
+  try {
+    const r = await fetch("/api/health");
+    const j = await r.json();
+    $("health-dot").className = "dot " + (j.llm_ok ? "ok" : "err");
+    $("health-text").textContent = j.llm_ok ? "LLM ok" : "LLM unreachable";
+    $("db-path").textContent = "db: " + j.db_path;
+  } catch (e) {
+    $("health-dot").className = "dot err";
+    $("health-text").textContent = "API unreachable";
+  }
+}
+
+// --------------------------------------------------------------------- devices
+async function loadDevices() {
+  const r = await fetch("/api/devices");
+  const devices = await r.json();
+  const root = $("device-list");
+  if (!devices.length) {
+    root.innerHTML = '<p class="empty">No devices recorded yet. Launch an inspection first.</p>';
+    return;
+  }
+  root.innerHTML = "";
+  devices.forEach(d => {
+    const div = document.createElement("div");
+    div.className = "device";
+    div.dataset.serial = d.serial;
+    div.innerHTML = `
+      <div class="serial">${escape(d.serial)}</div>
+      <div class="meta">${escape(d.manufacturer || "?")} ${escape(d.model || "")}
+        — Android ${escape(d.android_version || "?")}</div>
+      <div class="pills">
+        <span class="pill">${d.fact_count} facts</span>
+        <span class="pill">${d.package_count} pkgs</span>
+      </div>`;
+    div.onclick = () => selectDevice(d.serial);
+    root.appendChild(div);
+  });
+}
+
+function selectDevice(serial) {
+  selected = serial;
+  document.querySelectorAll(".device").forEach(el => {
+    el.classList.toggle("active", el.dataset.serial === serial);
+  });
+  $("ask-serial").textContent = serial;
+  $("ins-serial").textContent = serial;
+}
+
+// ------------------------------------------------------------------------- ask
+$("ask-btn").onclick = async () => {
+  if (!selected) { alert("Select a device first."); return; }
+  const q = $("ask-q").value.trim();
+  if (!q) return;
+  const k = parseInt($("ask-k").value, 10) || 5;
+  $("ask-output").innerHTML = '<p class="hint">thinking…</p>';
+  try {
+    const r = await fetch("/api/ask", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({serial: selected, question: q, top_k: k}),
+    });
+    const j = await r.json();
+    renderAsk(j);
+  } catch (e) {
+    $("ask-output").innerHTML = '<p class="err">request failed: ' + escape(e.message) + '</p>';
+  }
+};
+
+function renderAsk(j) {
+  let html = '<div class="answer">' + escape(j.answer) + '</div>';
+  if (j.citations && j.citations.length) {
+    html += '<div class="citations">';
+    j.citations.forEach((c, i) => {
+      html += `<div class="citation">
+        <div class="head">
+          <span><span class="cat">[${i+1}] ${escape(c.category)}</span> · ${escape(c.key)}</span>
+          <span>score ${c.score} · ${escape(c.recorded_utc)}</span>
+        </div>
+        <div class="val">${escape(c.value)}</div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+  if (j.warnings && j.warnings.length) {
+    j.warnings.forEach(w => { html += '<p class="warn">⚠ ' + escape(w) + '</p>'; });
+  }
+  $("ask-output").innerHTML = html;
+}
+
+// --------------------------------------------------------------------- inspect
+$("ins-btn").onclick = async () => {
+  if (!selected) { alert("Select a device first."); return; }
+  const body = {
+    serial:                selected,
+    goal:                  $("ins-goal").value,
+    max_turns:             parseInt($("ins-turns").value, 10) || 25,
+    timeout_seconds:       parseFloat($("ins-timeout").value) || 600,
+    require_root:          $("ins-root").value,
+    no_rag:                $("ins-norag").checked,
+    allow_arbitrary_shell: $("ins-shell").checked,
+  };
+  $("ins-btn").disabled = true;
+  $("ins-output").innerHTML = '<pre class="log" id="ins-log">starting…\n</pre>';
+  try {
+    const r = await fetch("/api/inspect", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    streamSession(j.session_id);
+  } catch (e) {
+    $("ins-output").innerHTML = '<p class="err">launch failed: ' + escape(e.message) + '</p>';
+    $("ins-btn").disabled = false;
+  }
+};
+
+function streamSession(sid) {
+  const log = $("ins-log");
+  const es = new EventSource(`/api/sessions/${sid}/stream`);
+  es.addEventListener("log", e => {
+    log.textContent += e.data + "\n";
+    log.scrollTop = log.scrollHeight;
+  });
+  es.addEventListener("done", e => {
+    try {
+      const payload = JSON.parse(e.data);
+      let html = '<pre class="log">' + escape(log.textContent) + '</pre>';
+      html += '<div class="summary"><b>status:</b> ' + escape(payload.status);
+      if (payload.session_dir) {
+        const rel = payload.session_dir.replace(/^.*[\\/]sessions[\\/]?/, "");
+        html += '<br><b>report:</b> <a href="/sessions/' + escape(rel) + '/report.html" target="_blank">open report</a>';
+      }
+      if (payload.manifest) {
+        html += '<br><b>manifest:</b><pre>' + escape(JSON.stringify(payload.manifest, null, 2)) + '</pre>';
+      }
+      html += '</div>';
+      $("ins-output").innerHTML = html;
+    } catch (err) {}
+    es.close();
+    $("ins-btn").disabled = false;
+    loadDevices();  // refresh fact counts
+  });
+  es.addEventListener("ping", () => {});
+  es.onerror = () => {
+    log.textContent += "[stream interrupted]\n";
+    es.close();
+    $("ins-btn").disabled = false;
+  };
+}
+
+// ------------------------------------------------------------------------- util
+function escape(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+pingHealth();
+setInterval(pingHealth, 30000);
+loadDevices();
+setInterval(loadDevices, 15000);
+</script>
+</body>
+</html>
