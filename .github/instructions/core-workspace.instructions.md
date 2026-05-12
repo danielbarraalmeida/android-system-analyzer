@@ -9,6 +9,14 @@ applyTo: "**/*"
 
 Deliver practical, implementation-oriented outputs for Android inspection workflows and Copilot customization.
 
+## Canonical architecture reference
+
+[ARCHITECTURE.md](../../ARCHITECTURE.md) at the repo root is the
+authoritative top-down flowchart of the project (entry points → web →
+session → agent loop → tools → knowledge store). Consult it before
+proposing structural changes, and update it whenever the agent loop,
+tool surface, web routes, or knowledge store change shape.
+
 ## Rules
 
 - Prefer small, composable changes.

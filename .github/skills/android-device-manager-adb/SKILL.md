@@ -184,3 +184,7 @@ Common failure modes surfaced into the session manifest:
 
 For raw ADB commands outside the agent loop, see
 `references/adb_cheatsheet.md`.
+
+For the canonical top-down architecture flowchart (entry points → web →
+session → agent loop → tools → knowledge store), see
+[ARCHITECTURE.md](../../../ARCHITECTURE.md) at the repo root.

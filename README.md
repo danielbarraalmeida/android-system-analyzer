@@ -10,6 +10,12 @@
 
 UI exploration (taps, swipes, BFS) is **out of scope** on this branch.
 
+## Architecture
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the canonical top-down
+flowchart (entry points → web → session → agent loop → tools →
+knowledge store).
+
 ## What it does
 
 - Connects to a single Android device over ADB and enables root.
