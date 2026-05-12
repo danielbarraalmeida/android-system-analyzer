@@ -124,36 +124,68 @@ def _ensure_adb_root(
     - ``skipped``   — do not attempt.
 
     The legacy mode names ``auto`` / ``never`` are accepted as aliases.
+
+    Robustness notes:
+    - ``adb root`` restarts the device's adbd. For TCP/IP serials
+      (``host:port``) this drops the connection, so ``adb root`` itself
+      often exits non-zero even when the daemon successfully restarts
+      as root. We therefore treat the exit code as advisory and use
+      ``adb shell id`` as the source of truth, reconnecting TCP devices
+      and retrying briefly while the daemon comes back up.
     """
+    import time
+
     if adb_root_mode in ("skipped", "never"):
         return
 
     root_cmd = _run_adb(["root"], serial=serial, command_log=command_log, check=False)
     root_out = "\n".join([root_cmd.stdout or "", root_cmd.stderr or ""]).lower()
 
-    if root_cmd.returncode != 0:
-        msg = (
-            "adb root command failed; continuing without root. "
-            f"exit={root_cmd.returncode}"
-        )
-        if adb_root_mode == "required":
-            raise RuntimeError(msg)
-        warnings.append(msg)
-        return
-
-    _run_adb(["wait-for-device"], serial=serial, command_log=command_log, check=False)
-    shell_id = _run_adb(
-        ["shell", "id"], serial=serial, command_log=command_log, check=False,
-    )
-    if "uid=0" in (shell_id.stdout or ""):
-        return
-
+    already_root      = "already running as root" in root_out
     production_locked = "cannot run as root in production builds" in root_out
-    msg = (
-        "adb root unavailable on production-locked build; continuing without root."
-        if production_locked else
-        "adb root was requested but shell is still non-root; continuing without root."
-    )
+
+    # TCP/IP serial → adbd restart drops the connection. Reconnect.
+    is_tcp = ":" in serial and serial.rsplit(":", 1)[-1].isdigit()
+    if is_tcp and not already_root:
+        _run_adb(["connect", serial], serial=None,
+                 command_log=command_log, check=False)
+
+    # Poll until adbd is back and we can run a shell command. Up to ~5s.
+    uid0 = False
+    last_id_out = ""
+    for attempt in range(10):
+        _run_adb(["wait-for-device"], serial=serial,
+                 command_log=command_log, check=False)
+        shell_id = _run_adb(
+            ["shell", "id"], serial=serial,
+            command_log=command_log, check=False,
+        )
+        last_id_out = (shell_id.stdout or "") + (shell_id.stderr or "")
+        if shell_id.returncode == 0 and "uid=0" in (shell_id.stdout or ""):
+            uid0 = True
+            break
+        if shell_id.returncode == 0 and (shell_id.stdout or "").strip():
+            # Got a real, non-root shell response — daemon is up but
+            # not root. No point waiting longer.
+            break
+        time.sleep(0.5)
+        if is_tcp:
+            _run_adb(["connect", serial], serial=None,
+                     command_log=command_log, check=False)
+
+    if uid0:
+        return
+
+    if production_locked:
+        msg = "adb root unavailable on production-locked build; continuing without root."
+    elif root_cmd.returncode != 0 and not last_id_out.strip():
+        msg = (
+            "adb root failed and device became unreachable; continuing without root. "
+            f"exit={root_cmd.returncode} stderr={(root_cmd.stderr or '').strip()!r}"
+        )
+    else:
+        msg = "adb root was requested but shell is still non-root; continuing without root."
+
     if adb_root_mode == "required":
         raise RuntimeError(msg)
     warnings.append(msg)
