@@ -35,7 +35,7 @@ except ImportError:                                        # pragma: no cover
 
 
 DEFAULT_BASE_URL = "http://127.0.0.1:1234/v1"
-DEFAULT_MODEL    = "google/gemma-4-e4b"
+DEFAULT_MODEL    = "google/gemma-4-26b-a4b"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-nomic-embed-text-v1.5"
 # Local servers reject empty API keys; any non-empty placeholder works.
 DEFAULT_API_KEY  = "local"

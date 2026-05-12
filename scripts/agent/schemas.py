@@ -258,6 +258,75 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                         "description": "Markdown summary of what was discovered."},
         }, required=["summary"]),
     ),
+    # ------------------------------------------------------------------
+    # UI Interaction
+    # ------------------------------------------------------------------
+    _fn(
+        "launch_activity",
+        "Launch an app or a specific activity via `am start`. "
+        "Use `inspect_package` first to discover available activities. "
+        "Omit `activity` to start the app's main launcher entry point.",
+        _obj({
+            "package":  {"type": "string",
+                         "description": "Fully-qualified package name."},
+            "activity": {"type": "string",
+                         "description": "Activity class (short or full). Optional."},
+            "flags":    {"type": "string",
+                         "description": "Extra am start flags e.g. '--activity-clear-top'."},
+        }, required=["package"]),
+    ),
+    _fn(
+        "tap",
+        "Tap a screen coordinate (pixels). "
+        "Get coordinates from `capture_screen` element `bounds` "
+        "(parse '[x1,y1][x2,y2]' → centre = ((x1+x2)//2, (y1+y2)//2)).",
+        _obj({
+            "x": {"type": "integer", "description": "X coordinate in pixels."},
+            "y": {"type": "integer", "description": "Y coordinate in pixels."},
+        }, required=["x", "y"]),
+    ),
+    _fn(
+        "press_key",
+        "Send an Android key event. Common codes: KEYCODE_BACK, KEYCODE_HOME, "
+        "KEYCODE_ENTER, KEYCODE_DPAD_UP/DOWN/LEFT/RIGHT, KEYCODE_TAB.",
+        _obj({
+            "keycode": {"type": "string",
+                        "description": "Android keycode string e.g. 'KEYCODE_BACK'."},
+        }, required=["keycode"]),
+    ),
+    _fn(
+        "swipe",
+        "Swipe from (x1,y1) to (x2,y2) over `duration_ms` milliseconds. "
+        "Use to pull down the status bar: swipe(540,0,540,600) on a 1080p screen. "
+        "Use duration_ms=50 for fast flings, 500+ for slow scrolls.",
+        _obj({
+            "x1":          {"type": "integer"},
+            "y1":          {"type": "integer"},
+            "x2":          {"type": "integer"},
+            "y2":          {"type": "integer"},
+            "duration_ms": {"type": "integer",
+                            "description": "Swipe duration in ms (default 300)."},
+        }, required=["x1", "y1", "x2", "y2"]),
+    ),
+    _fn(
+        "input_text",
+        "Type text into the currently focused input field.",
+        _obj({
+            "text": {"type": "string", "description": "Text to type."},
+        }, required=["text"]),
+    ),
+    _fn(
+        "capture_screen",
+        "Capture the **current** screen WITHOUT pressing HOME: UI dump + screenshot. "
+        "Returns focused package/activity, up to 60 UI elements with text, "
+        "content_desc, resource_id, bounds, and clickable flag, plus any URLs "
+        "found directly in element text/content_desc. "
+        "Use this after every tap/swipe/launch to observe state and plan next action.",
+        _obj({
+            "label": {"type": "string",
+                      "description": "Optional short label for the saved snapshot file."},
+        }),
+    ),
 ]
 
 

@@ -25,6 +25,7 @@ import re
 import shlex
 import subprocess
 import uuid
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -130,8 +131,14 @@ _SHELL_ALLOWLIST: tuple[re.Pattern[str], ...] = tuple(
         r"^mount$",
         r"^date( |$)",
         r"^am stack list$",
+        r"^am start( |$)",
+        r"^am start-activity( |$)",
         r"^cmd [a-zA-Z0-9_]+ ",
         r"^logcat -d( |$)",
+        r"^input (tap|swipe|keyevent|text) ",
+        r"^input keyevent [A-Z0-9_]+$",
+        r"^uiautomator dump",
+        r"^wm (size|density)$",
     )
 )
 
@@ -764,6 +771,219 @@ def tool_capture_home_screen(session: AgentSession) -> dict[str, Any]:
             pass
 
 
+# ---------------------------------------------------------------------------
+# UI Interaction tools (launch, tap, swipe, keyevent, text, capture)
+# ---------------------------------------------------------------------------
+
+
+def _extract_ui_elements(xml_path: Path, max_elements: int = 60) -> list[dict[str, Any]]:
+    """Parse uiautomator XML and return compact element list."""
+    try:
+        tree = ET.parse(str(xml_path))
+    except ET.ParseError:
+        return []
+    elements: list[dict[str, Any]] = []
+    for node in tree.iter("node"):
+        text = node.get("text", "").strip()
+        desc = node.get("content-desc", "").strip()
+        rid  = node.get("resource-id", "")
+        cls  = node.get("class", "")
+        bounds = node.get("bounds", "")
+        clickable = node.get("clickable", "false") == "true"
+        if text or desc or (clickable and bounds):
+            elements.append({
+                "text":         text,
+                "content_desc": desc,
+                "resource_id":  rid,
+                "class_":       cls,
+                "bounds":       bounds,
+                "clickable":    clickable,
+            })
+        if len(elements) >= max_elements:
+            break
+    return elements
+
+
+def _parse_bounds(bounds: str) -> tuple[int, int]:
+    """Return (cx, cy) from uiautomator bounds string '[x1,y1][x2,y2]'."""
+    m = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", bounds)
+    if not m:
+        raise ValueError(f"Cannot parse bounds: {bounds!r}")
+    x1, y1, x2, y2 = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+    return (x1 + x2) // 2, (y1 + y2) // 2
+
+
+def tool_launch_activity(
+    session: AgentSession,
+    *,
+    package: str,
+    activity: str | None = None,
+    flags: str | None = None,
+) -> dict[str, Any]:
+    """Launch an app or a specific activity via ``am start``."""
+    import time as _time
+    _log = session.log or (lambda _m: None)
+    if activity:
+        component = f"{package}/{activity}"
+        base_flags = flags or ""
+        cmd = f"am start {base_flags} -n {component}".strip()
+    else:
+        base_flags = flags or ""
+        cmd = f"am start {base_flags} -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p {package}".strip()
+    _log(f"    • launching {package}…")
+    code, out, err = _shell(session, cmd, timeout=20.0)
+    _time.sleep(session.settle_ms / 1000.0)
+    return {
+        "package":   package,
+        "activity":  activity,
+        "exit_code": code,
+        "output":    _truncate((out + err).strip(), 300),
+    }
+
+
+def tool_tap(
+    session: AgentSession,
+    *,
+    x: int,
+    y: int,
+) -> dict[str, Any]:
+    """Tap screen coordinates and wait for UI to settle."""
+    import time as _time
+    _log = session.log or (lambda _m: None)
+    _log(f"    • tap ({x},{y})…")
+    code, out, err = _shell(session, f"input tap {x} {y}", timeout=15.0)
+    _time.sleep(session.settle_ms / 1000.0)
+    return {"x": x, "y": y, "exit_code": code, "error": err.strip() or None}
+
+
+def tool_press_key(
+    session: AgentSession,
+    *,
+    keycode: str,
+) -> dict[str, Any]:
+    """Send a keyevent (e.g. KEYCODE_BACK, KEYCODE_HOME, KEYCODE_ENTER)."""
+    import time as _time
+    _log = session.log or (lambda _m: None)
+    _log(f"    • keyevent {keycode}…")
+    code, out, err = _shell(session, f"input keyevent {keycode}", timeout=10.0)
+    _time.sleep(session.settle_ms / 1000.0)
+    return {"keycode": keycode, "exit_code": code, "error": err.strip() or None}
+
+
+def tool_swipe(
+    session: AgentSession,
+    *,
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    duration_ms: int = 300,
+) -> dict[str, Any]:
+    """Swipe from (x1,y1) to (x2,y2). Use duration_ms=50 for fast flings."""
+    import time as _time
+    _log = session.log or (lambda _m: None)
+    _log(f"    • swipe ({x1},{y1})→({x2},{y2})…")
+    code, out, err = _shell(
+        session, f"input swipe {x1} {y1} {x2} {y2} {duration_ms}", timeout=15.0,
+    )
+    _time.sleep(session.settle_ms / 1000.0)
+    return {"from": [x1, y1], "to": [x2, y2], "exit_code": code, "error": err.strip() or None}
+
+
+def tool_input_text(
+    session: AgentSession,
+    *,
+    text: str,
+) -> dict[str, Any]:
+    """Type text into the focused field via ``input text``."""
+    _log = session.log or (lambda _m: None)
+    _log(f"    • input text '{text[:30]}…'")
+    safe = shlex.quote(text)
+    code, out, err = _shell(session, f"input text {safe}", timeout=15.0)
+    return {"text": text, "exit_code": code, "error": err.strip() or None}
+
+
+def tool_capture_screen(
+    session: AgentSession,
+    *,
+    label: str | None = None,
+) -> dict[str, Any]:
+    """Capture the **current** screen (no HOME press): UI dump + screenshot.
+
+    Returns focused package/activity, a compact list of up to 60 UI elements
+    (text, content_desc, resource_id, bounds, clickable), and the screenshot
+    path. Use this repeatedly during UI interaction workflows to observe state.
+    """
+    _log = session.log or (lambda _m: None)
+    _log("    • capturing current screen…")
+
+    session.ensure_dirs()
+    slug = (label or uuid.uuid4().hex[:8]).replace(" ", "_")[:24]
+    scratch = session.session_dir / "_scratch" / uuid.uuid4().hex[:8]
+    scratch.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # UI dump
+        remote = "/sdcard/window_dump.xml"
+        _shell(session, f"uiautomator dump --windows {remote}", timeout=20.0)
+        local_xml = scratch / "window_dump.xml"
+        _run(session, ["pull", remote, str(local_xml)], timeout=20.0)
+
+        elements = _extract_ui_elements(local_xml) if local_xml.exists() else []
+
+        # Extract visible URLs from elements
+        url_re = re.compile(r"https?://[^\s\"'>]{4,}")
+        urls_found: list[str] = []
+        for el in elements:
+            for field in ("text", "content_desc"):
+                m = url_re.search(el.get(field, ""))
+                if m:
+                    urls_found.append(m.group())
+
+        # Focused package/activity
+        pkg, activity = _get_package_activity(session.serial, session.command_log, session.warnings)
+
+        # Screenshot
+        screenshot_rel: str | None = None
+        try:
+            raw_png = _capture_screenshot(session.serial, scratch, session.command_log)
+            dest = session.screenshots_dir / f"{slug}.png"
+            raw_png.replace(dest)
+            screenshot_rel = dest.relative_to(session.session_dir).as_posix()
+        except RuntimeError as exc:
+            session.warnings.append(f"screenshot failed: {exc}")
+
+        snap_obj = {
+            "label":      slug,
+            "package":    pkg,
+            "activity":   activity,
+            "elements":   elements,
+            "urls_found": urls_found,
+            "screenshot": screenshot_rel,
+            "captured_utc": _now_utc(),
+        }
+        snap_path = session.screens_dir / f"{slug}.json"
+        snap_path.write_text(json.dumps(snap_obj, indent=2), encoding="utf-8")
+        session.screen_snapshots.append(snap_obj)
+
+        return {
+            "package":       pkg,
+            "activity":      activity,
+            "element_count": len(elements),
+            "elements":      elements,
+            "urls_found":    urls_found,
+            "screenshot":    screenshot_rel,
+            "snapshot_file": snap_path.relative_to(session.session_dir).as_posix(),
+        }
+    finally:
+        try:
+            for p in sorted(scratch.rglob("*"), reverse=True):
+                p.unlink() if p.is_file() else p.rmdir()
+            scratch.rmdir()
+        except OSError:
+            pass
+
+
 _NOTE_CATEGORIES = (
     "hardware", "software", "build", "audio", "display", "network",
     "wifi", "bluetooth", "sensors", "battery", "storage", "memory",
@@ -1045,6 +1265,13 @@ TOOL_REGISTRY: dict[str, Callable[..., dict[str, Any]]] = {
     "search_facts":          tool_search_facts,
     "note":                  tool_note,
     "finish":                tool_finish,
+    # UI interaction
+    "launch_activity":       tool_launch_activity,
+    "tap":                   tool_tap,
+    "press_key":             tool_press_key,
+    "swipe":                 tool_swipe,
+    "input_text":            tool_input_text,
+    "capture_screen":        tool_capture_screen,
 }
 
 

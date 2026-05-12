@@ -77,6 +77,14 @@ def test_parse_settings_keyvalue() -> None:
     "cat /proc/cpuinfo",
     "ls -la /system",
     "cmd activity start-activity foo",
+    "input tap 100 200",
+    "input swipe 0 0 500 500 300",
+    "input keyevent KEYCODE_BACK",
+    "input text hello",
+    "am start -n com.example/.MainActivity",
+    "uiautomator dump --windows /sdcard/window_dump.xml",
+    "wm size",
+    "wm density",
 ])
 def test_allowlist_accepts_known_commands(cmd: str) -> None:
     assert _shell_command_allowed(cmd)
@@ -86,7 +94,6 @@ def test_allowlist_accepts_known_commands(cmd: str) -> None:
     "rm -rf /",
     "echo hi",
     "reboot",
-    "input tap 100 200",
     "settings put global x y",
     "; cat /etc/passwd",
 ])

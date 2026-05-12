@@ -74,7 +74,6 @@ asking for more matches.
 
 ## Avoid
 
-- Tapping, swiping, or any UI navigation. Tools for that do not exist.
 - Re-inspecting things already covered in "Prior knowledge" (injected
   below). Confirm or extend; don't repeat.
 - Running `run_shell` with grep/awk/sed pipelines — use the `grep_*`
@@ -83,7 +82,44 @@ asking for more matches.
   `settings list` cache after the first call this session.
 - Escaping into `run_shell` when a dedicated tool fits.
 
-## Tool catalogue
+## UI Interaction (when the goal explicitly requires it)
+
+When passive inspection (grep/find/dumpsys) cannot answer the goal —
+for example, a goal that asks you to **trigger a UI flow and observe
+what the device shows** — you may interact with the device:
+
+### Workflow
+
+1. **Locate the app** — `find_package` → `inspect_package` to get
+   activities.
+2. **Launch** — `launch_activity(package, activity?)`. Prefer a
+   specific activity if you found one; otherwise omit `activity` to
+   hit the launcher entry point.
+3. **Observe** — `capture_screen(label)` immediately after each action.
+   Read the returned `elements` list; elements with `clickable: true`
+   and meaningful `text`/`content_desc` are your navigation targets.
+4. **Act** — compute the tap centre from `bounds` (`[x1,y1][x2,y2]` →
+   `((x1+x2)//2, (y1+y2)//2)`) then call `tap(x, y)`. Follow with
+   another `capture_screen`.
+5. **Check logcat** — immediately after a QR / link screen appears,
+   call `grep_logcat(pattern="https?://|qr|QR|deeplink", since="1m")`.
+   The URL is often emitted before or as the QR renders.
+6. **Pull down status bar** — `swipe(x1=540, y1=0, x2=540, y2=600,
+   duration_ms=300)` on a ~1080p screen, then `capture_screen`.
+7. **Navigate back** — `press_key("KEYCODE_BACK")` to restore state
+   after each sub-flow.
+
+### Rules
+
+- After every tap/swipe/launch call `capture_screen` before the next
+  action — never tap blind.
+- `urls_found` in the `capture_screen` response contains URLs extracted
+  directly from element text/content_desc. Check this first before
+  grepping logcat.
+- Limit total taps to what the goal demands; don't explore gratuitously.
+- `capture_home_screen` is still limited to at most once per session.
+  Use `capture_screen` (no HOME press) for all other captures.
+
 
 You will see the formal schemas via the API. Quick reference:
 
@@ -111,8 +147,17 @@ File / shell escape hatches:
 - `list_dir(path)`
 - `run_shell(command)` — allowlisted; last resort.
 
+UI interaction (when goal requires it — see section above):
+- `launch_activity(package, activity?, flags?)` — start an app/screen.
+- `tap(x, y)` — tap pixel coordinates; use bounds from `capture_screen`.
+- `press_key(keycode)` — e.g. `KEYCODE_BACK`, `KEYCODE_HOME`.
+- `swipe(x1, y1, x2, y2, duration_ms?)` — scroll or pull status bar.
+- `input_text(text)` — type into focused field.
+- `capture_screen(label?)` — current screen: elements + screenshot +
+  `urls_found`. Call after EVERY interaction.
+
 Visual + knowledge:
-- `capture_home_screen` — at most once.
+- `capture_home_screen` — at most once (presses HOME first).
 - `note(category, key, value)` — record a structured fact.
 - `finish(summary)` — end the session with a markdown summary.
 
