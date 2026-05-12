@@ -9,9 +9,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "scripts"
-FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
-# Make `scripts/` importable as flat modules (current_screen_report, diff_captures).
+# Make `scripts/` importable so the ``agent`` package resolves under tests.
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
@@ -19,13 +18,3 @@ if str(SCRIPTS) not in sys.path:
 @pytest.fixture(scope="session")
 def repo_root() -> Path:
     return ROOT
-
-
-@pytest.fixture(scope="session")
-def fixtures_dir() -> Path:
-    return FIXTURES
-
-
-@pytest.fixture(scope="session")
-def sample_xml_path() -> Path:
-    return FIXTURES / "sample_window_dump.xml"

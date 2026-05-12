@@ -23,8 +23,8 @@ the dumpsys / getprop / pm / service / settings layer.
   - `llm_client.py` — OpenAI-compatible chat + embedding wrapper.
   - `knowledge/` — SQLite store, indexer (write), retriever (read).
   - `prompts/system.md`, `default_goal.md`, `dumpsys_sections.md`.
-- `scripts/current_screen_report.py`, `scripts/v2_navigator.py` —
-  internal ADB primitives used by the tool layer.
+  - `_adb.py`, `_navigation.py` — internal ADB primitives used by
+    the tool layer.
 - `output/rag-sessions/<session_id>/` — per-run artifacts.
 - `output/knowledge.db` — cumulative SQLite store.
 

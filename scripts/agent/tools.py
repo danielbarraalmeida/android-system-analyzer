@@ -24,30 +24,22 @@ import json
 import re
 import shlex
 import subprocess
-import sys
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-# Import existing ADB primitives. ``scripts`` is on sys.path because the
-# CLI puts it there before importing this module.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from current_screen_report import (  # noqa: E402
+from ._adb import (
     _capture_screenshot,
     _capture_ui_dump,
     _ensure_adb_root,
-    _extract_elements,
     _get_package_activity,
     _get_screen_density,
     _get_screen_size,
     _resolve_serial,
+    extract_ui_signature,
 )
-from v2_navigator import (  # noqa: E402
-    compute_state_signature,
-    navigate_to_home,
-    wait_for_ui_settle,
-)
+from ._navigation import navigate_to_home
 
 
 # ---------------------------------------------------------------------------
@@ -645,8 +637,7 @@ def tool_capture_home_screen(session: AgentSession) -> dict[str, Any]:
 
     try:
         ui_dump = _capture_ui_dump(session.serial, scratch, session.command_log)
-        elements, _xml_count = _extract_elements(ui_dump)
-        signature = compute_state_signature(elements)
+        signature, element_count = extract_ui_signature(ui_dump)
         pkg, activity = _get_package_activity(session.serial, session.command_log, session.warnings)
         width, height = _get_screen_size(session.serial, session.command_log, session.warnings)
         density = _get_screen_density(session.serial, session.command_log, session.warnings)
@@ -665,7 +656,7 @@ def tool_capture_home_screen(session: AgentSession) -> dict[str, Any]:
             "package":       pkg,
             "activity":      activity,
             "screen":        {"width": width, "height": height, "density": density},
-            "element_count": len(elements),
+            "element_count": element_count,
             "screenshot":    screenshot_rel,
             "captured_utc":  _now_utc(),
         }
@@ -676,7 +667,7 @@ def tool_capture_home_screen(session: AgentSession) -> dict[str, Any]:
         return {
             "package":        pkg,
             "activity":       activity,
-            "element_count":  len(elements),
+            "element_count":  element_count,
             "screenshot":     screenshot_rel,
             "snapshot_file":  snap_path.relative_to(session.session_dir).as_posix(),
         }

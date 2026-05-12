@@ -1,46 +1,60 @@
 ---
-description: "Use when generating or changing report outputs that exhaustively document every Android screen element in JSON, Markdown, or HTML."
-applyTo: "templates/**/*.{json,md,html},docs/**/*.md,**/*report*.{md,html,json}"
+description: "Use when generating or changing report outputs (HTML, JSON, Markdown) for the RAG-powered Android System Analyzer sessions or its test suite."
+applyTo: "templates/**/*.{json,md,html},**/*report*.{md,html,json},output/sessions/**/*"
 ---
 
 # Reporting Contract Instruction
 
 ## Purpose
 
-Reports must exhaustively document every element on the current Android screen so a reader can fully understand the UI surface without inspecting the device. Reports also carry interaction candidacy data so future workflows can act on them without re-parsing.
+Reports must give a reader the full picture of a finished
+inspection session: the goal, what tools were called in what order,
+what knowledge facts were captured, and links to raw artifacts —
+without requiring the reader to open the device or the SQLite store.
 
-## Output Set (Required)
+## Session output set
 
-Every scrape capture produces three synchronized artifacts:
+Every `scripts/rag_run.py` invocation produces, under
+`output/sessions/<session_id>/`:
 
-- JSON canonical dataset (source of truth).
-- Markdown narrative report.
-- HTML visual report.
+- `manifest.json` — canonical machine-readable record of the run
+  (goal, device, tools called, knowledge facts, warnings, exit
+  reason).
+- `summary.md` — human narrative.
+- `transcript.json` — full LLM message + tool-call log.
+- `report.html` — visual session report rendered from
+  `templates/session-report-template.html`.
+- `raw/*.txt` — verbatim shell / dumpsys outputs referenced by the
+  manifest.
 
-## Consistency Rules
+`manifest.json` is the **single source of truth**. Markdown and
+HTML must not show facts that are absent from the manifest, and
+counts must match exactly.
 
-- JSON is the single source of truth.
-- Markdown and HTML must reflect the exact same element set, counts, and metadata as the JSON.
-- All field names must match `templates/screen-snapshot.schema.json`.
-- No truncation: all elements appear in all artifacts.
+## Test output set
 
-## Required Report Content
+`scripts/run_tests_report.py` produces, under
+`output/test-results/`:
 
-- **Capture metadata**: id, UTC timestamp, device serial, package, activity, screen width/height.
-- **Source artifacts**: UI dump path, screenshot path.
-- **Element catalog**: every element with full identity, classification, content, geometry, state flags, and interaction candidacy.
-- **Hierarchy view**: depth and parent-child relationships visible in the rendered output.
-- **Interaction candidates**: summary of which elements are tap/scroll/input/swipe candidates and their action types.
-- **Statistics**: total element count, per-flag counts (clickable, focusable, enabled, scrollable, checked).
-- **Diagnostics**: ADB command log with exit codes, warnings, known limitations.
+- `junit.xml` — JUnit-format pytest results.
+- `test-results.json` — aggregated machine-readable summary.
+- `test-report.html` — rendered from
+  `templates/test-report-template.html`.
 
-## HTML Guidance
+## HTML guidance
 
-- Provide a searchable element table covering every element.
-- Provide visual hierarchy cues using depth or indentation levels.
-- Provide a screenshot overlay showing element bounding boxes.
-- Keep styling lightweight and self-contained (no external CDN dependencies).
+- All CSS / JS inline. No CDN dependencies. The file must open
+  offline.
+- Hero section with the most important facts first.
+- Tables for transcript / fact list with sticky headers, alternating
+  row shading, truncation with tooltip.
+- Use `<details>`/`<summary>` for verbose blocks (raw transcripts,
+  command logs, failing-test stack traces).
+- Semantic color: success/green, warning/amber, failure/red,
+  neutral/muted.
 
-## Out of Scope
+## Out of scope
 
-- Diff or change-comparison reports are not part of the standard output set; they are an optional auxiliary artifact only.
+- UI element catalogs, BFS state graphs, tap-candidacy reports.
+- Diff / delta reports between sessions (auxiliary only, never
+  primary).

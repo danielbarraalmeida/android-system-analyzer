@@ -1,60 +1,80 @@
 # Agent Routing Guide
 
-The project mission is to exhaustively document every element visible on the current Android screen and to prepare for future interaction-driven captures where elements are acted on and the resulting screens are re-captured.
-Current execution scope is Android device investigation through ADB; SSH-based flows are intentionally deferred.
+The project mission is to drive **root-privileged, LLM-orchestrated
+Android system inspection sessions** that persist findings into a
+SQLite knowledge store and retrieve prior knowledge into the next
+session via RAG. UI exploration is **not** the mission — the agent
+works at the `dumpsys` / `getprop` / `pm` / `service` / `settings`
+layer.
+
+Execution scope is local: a workstation with `adb` and a single
+target device. SSH-based flows are intentionally deferred.
+
+## system-analyzer
+
+Use when you want to:
+
+- Drive a root-privileged Android inspection session via
+  `scripts/rag_run.py`.
+- Plan which `dumpsys` sections / properties / packages to enumerate
+  next on this device.
+- Reason about what is already known (RAG retrieval) before launching
+  the next run.
+- Triage a finished session: read `summary.md`, `manifest.json`, raw
+  artifacts.
 
 ## environment-mentor
 
 Use when you want to:
 
-- Create, update, or debug `.instructions.md`, `.agent.md`, `.prompt.md`, or `SKILL.md` files.
-- Keep customization scope aligned with the extraction-first mission.
-- Validate frontmatter quality, `applyTo` scopes, and file placement.
+- Create, update, or debug `.instructions.md`, `.agent.md`,
+  `.prompt.md`, or `SKILL.md` files.
+- Keep customization scope aligned with the RAG-system-analyzer
+  mission.
+- Validate frontmatter, `applyTo` scopes, and file placement.
 - Understand why a customization is or is not being invoked.
-
-## android-scrape-planner
-
-Use when you want to:
-
-- Define or extend the exhaustive element extraction contract.
-- Specify element completeness rules, stable identity, or capture provenance.
-- Plan interaction candidacy: which elements to act on, what action types apply.
-- Design the future interaction loop: capture → act → re-capture → link.
-- Plan the JSON/Markdown/HTML report structure for full element documentation.
-
-## pipeline-runner
-
-Use when you want to:
-
-- Execute the Android capture pipeline scripts and collect their output.
-- Diagnose ADB/device connectivity issues blocking a capture run.
-- Triage Python tracebacks from capture scripts and pinpoint the failing module.
-- Validate generated JSON/Markdown/HTML artifacts against the screen-snapshot schema and templates.
-- Receive a structured diagnostic report with a proposed fix (no code edits applied).
 
 ## python-implementer
 
 Use when you want to:
 
-- Implement an approved `android-scrape-planner` plan in Python with surgical precision.
-- Implement v2 interaction traversal starting from Home, tapping actionable candidates, and re-capturing resulting states.
-- Register complete state/transition provenance for every interaction attempt and outcome.
-- Produce JSON/Markdown/HTML artifacts from a single in-memory model with full element parity.
-- Keep exploration deterministic (stable ordering, visited-state control, explicit stop conditions).
+- Implement changes inside `scripts/agent/` (runner, tools,
+  knowledge store, llm_client) or `scripts/rag_run.py`.
+- Add a new agent tool, extend a tool schema, or refine the system
+  prompt.
+- Touch the SQLite indexer/retriever or embedding pipeline.
 
 ## test-engineer
 
 Use when you want to:
 
-- Design, implement, run, or report unit and component tests for `scripts/`.
-- Add coverage for parsing, identity, interaction candidacy, summary, renderers, or diff helpers.
-- Run the offline test harness and produce JSON + JUnit XML + HTML test reports.
-- Maintain the `tests/` tree, fixtures, and `scripts/run_tests_report.py`.
+- Add, run, or report unit + component tests under `tests/`.
+- Maintain `scripts/run_tests_report.py` and the HTML test report.
+- Cover knowledge store, retriever, tool dispatch, and runner
+  control flow — without invoking real ADB or the real LLM.
+
+## report-designer
+
+Use when you want to:
+
+- Improve the visual quality of HTML report templates
+  (`session-report-template.html`, `test-report-template.html`,
+  `report-template.html`).
+- Polish hero sections, tables, color semantics, dark-mode contrast.
+
+## git-keeper
+
+Use when you want to:
+
+- Keep `README.md`, `CHANGELOG`, commit messages, or `.gitignore`
+  aligned with the actual code.
 
 ## Routing Rule
 
-- Environment and customization tasks → `environment-mentor`.
-- Android extraction, schema, element identity, interaction planning → `android-scrape-planner`.
-- Running scripts, ADB/runtime debugging, traceback triage, artifact validation → `pipeline-runner`.
-- Implementing an approved plan in Python → `python-implementer`.
-- Writing/running/reporting unit and component tests offline → `test-engineer`.
+- Inspection-session planning, execution, triage → `system-analyzer`.
+- Customization-file edits, frontmatter, scopes → `environment-mentor`.
+- Python edits inside `scripts/` → `python-implementer`.
+- Offline tests + test report → `test-engineer`.
+- HTML report visual polish → `report-designer`.
+- Repository hygiene (README, changelog, commits) → `git-keeper`.
+

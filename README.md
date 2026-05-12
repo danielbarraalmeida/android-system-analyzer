@@ -31,14 +31,14 @@ UI exploration (taps, swipes, BFS) is **out of scope** on this branch.
 ```
 scripts/
   rag_run.py                # CLI entry point
-  current_screen_report.py  # internal ADB primitives (kept as a library)
-  v2_navigator.py           # internal navigation helpers (HOME / settle)
   run_tests_report.py       # pytest → HTML report harness
   agent/
     runner.py               # agent loop (RAG read → tools → RAG write)
     tools.py                # 13 root-privileged system tools
     schemas.py              # OpenAI tool schemas
     llm_client.py           # chat + embeddings wrapper
+    _adb.py                 # internal ADB primitives (kept as a library)
+    _navigation.py          # internal navigation helpers (HOME / settle)
     prompts/
       system.md             # system analyst persona
       default_goal.md       # default mission
