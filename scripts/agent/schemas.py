@@ -142,6 +142,104 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         _obj({}),
     ),
     _fn(
+        "find_property",
+        "Grep `getprop` for keys or values matching a regex. Auto-fetches "
+        "getprop on first call. Case-insensitive. Prefer this over running "
+        "`getprop` again when you only want a subset (e.g. pattern='audio' "
+        "or 'ro\\.boot\\.').",
+        _obj({
+            "pattern":       {"type": "string",
+                              "description": "Python regex (matches key OR value)."},
+            "value_pattern": {"type": "string",
+                              "description": "Optional extra regex matched against the value only."},
+            "max_matches":   {"type": "integer",
+                              "description": "Cap on returned matches (default 50)."},
+        }, required=["pattern"]),
+    ),
+    _fn(
+        "find_package",
+        "Grep installed package names (and APK paths) for a regex. "
+        "Auto-fetches the package list on first call. Use this to find "
+        "OEM / vendor / automotive packages without dumping the whole list.",
+        _obj({
+            "pattern":     {"type": "string",
+                            "description": "Python regex (matches package name or APK path)."},
+            "filter":      {"type": "string", "enum": _PACKAGE_FILTERS,
+                            "description": "Scope: third_party / system / all (default all)."},
+            "max_matches": {"type": "integer"},
+        }, required=["pattern"]),
+    ),
+    _fn(
+        "find_service",
+        "Grep registered binder services (and interface descriptors) for a "
+        "regex. Auto-fetches the service list on first call.",
+        _obj({
+            "pattern":     {"type": "string"},
+            "max_matches": {"type": "integer"},
+        }, required=["pattern"]),
+    ),
+    _fn(
+        "find_setting",
+        "Grep settings keys/values across system / secure / global "
+        "namespaces. Auto-fetches each namespace on first access.",
+        _obj({
+            "pattern":     {"type": "string"},
+            "namespaces":  {"type": "array",
+                            "items": {"type": "string", "enum": _SETTINGS_NAMESPACES},
+                            "description": "Subset of namespaces to search; default all three."},
+            "max_matches": {"type": "integer"},
+        }, required=["pattern"]),
+    ),
+    _fn(
+        "grep_dumpsys",
+        "Run (or reuse cached) `dumpsys <section>` and return only lines "
+        "matching a regex, with surrounding context. Strongly preferred "
+        "over `dumpsys` when you have a specific sub-topic to investigate.",
+        _obj({
+            "section":     {"type": "string", "enum": list(DUMPSYS_SECTIONS)},
+            "pattern":     {"type": "string"},
+            "context":     {"type": "integer",
+                            "description": "Lines of context around each match (default 2)."},
+            "max_matches": {"type": "integer"},
+        }, required=["section", "pattern"]),
+    ),
+    _fn(
+        "grep_logcat",
+        "Dump recent logcat (`adb shell logcat -d`) and return matching "
+        "lines. Use `since` like '15m' or '2h' to bound time, otherwise "
+        "the last `max_lines` lines are scanned.",
+        _obj({
+            "pattern":     {"type": "string"},
+            "since":       {"type": "string",
+                            "description": "logcat -t time spec (e.g. '15m', '2h') or timestamp."},
+            "max_lines":   {"type": "integer",
+                            "description": "Last-N lines when `since` is omitted (default 5000)."},
+            "context":     {"type": "integer"},
+            "max_matches": {"type": "integer"},
+        }, required=["pattern"]),
+    ),
+    _fn(
+        "grep_file",
+        "Read a device file via `cat` and return regex-matching lines. "
+        "Cheaper than `read_file` when you only need a subset.",
+        _obj({
+            "path":        {"type": "string",
+                            "description": "Absolute device path (must start with /)."},
+            "pattern":     {"type": "string"},
+            "context":     {"type": "integer"},
+            "max_matches": {"type": "integer"},
+        }, required=["path", "pattern"]),
+    ),
+    _fn(
+        "search_facts",
+        "Search the facts you have already recorded in THIS session via "
+        "`note`. Use this before adding a new note to avoid duplicates.",
+        _obj({
+            "pattern":     {"type": "string"},
+            "max_matches": {"type": "integer"},
+        }, required=["pattern"]),
+    ),
+    _fn(
         "note",
         "Record a structured fact for the knowledge store. Use this to "
         "summarise non-obvious observations (e.g. 'this device runs Android "

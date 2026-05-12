@@ -41,3 +41,17 @@ each section is good for:
 
 Sections you might think to call but cannot — they're not allowlisted
 (call `run_shell` with a specific `cmd ...` invocation instead).
+
+## Prefer `grep_dumpsys` for sub-topics
+
+If you only need a slice of a section, call
+`grep_dumpsys(section, pattern, context?)` instead of `dumpsys`. The
+full section is fetched once, cached for the rest of the session, and
+only lines matching the regex (plus N lines of context) are returned
+to you. Examples:
+
+- `grep_dumpsys("activity", "ResumedActivity|mFocusedApp")`
+- `grep_dumpsys("audio", "HAL|Patch|Stream")`
+- `grep_dumpsys("connectivity", "VALIDATED|Network \\{")`
+- `grep_dumpsys("sensorservice", "Sensor:|active")`
+- `grep_dumpsys("window", "mCurrentFocus|imeWindow")`

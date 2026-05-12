@@ -43,29 +43,76 @@ Build a high-resolution picture of:
   3-5 dumpsys sections + 1-2 settings namespaces, call `finish` with a
   markdown summary.
 
+## Searching efficiently
+
+Do NOT re-dump full sections to look for a substring. Use the
+`find_*` and `grep_*` family — they take a Python regex (case
+insensitive by default) and return only matching lines with context:
+
+- `find_property(pattern, value_pattern?)` — regex over `getprop`.
+- `find_package(pattern, filter?)` — regex over installed packages.
+- `find_service(pattern)` — regex over registered binder services.
+- `find_setting(pattern, namespaces?)` — regex across settings buckets.
+- `grep_dumpsys(section, pattern, context?)` — regex over a dumpsys
+  section's full output (cached after first use).
+- `grep_logcat(pattern, since?)` — last N lines of logcat, filtered.
+- `grep_file(path, pattern, context?)` — regex over a single device file.
+- `search_facts(pattern)` — regex over notes you have already recorded
+  in this session. Call this before `note` to avoid duplicates.
+
+Worked examples:
+
+- Find the audio HAL version → `grep_dumpsys("audio", "HAL|version|Patch")`.
+- Find which vendor packages exist → `find_package("\\bcar\\b|automotive|vendor")`.
+- Confirm root → `find_property("ro\\.debuggable|ro\\.secure")`.
+- Check connectivity validation → `grep_dumpsys("connectivity", "VALIDATED|NETWORK_AGENT")`.
+- Recent fatals → `grep_logcat("FATAL|AndroidRuntime|ANR", since="15m")`.
+
+For each match you get `{line_no, line, context}` plus `total_matches`.
+When `total_matches` exceeds `returned`, refine your regex rather than
+asking for more matches.
+
 ## Avoid
 
 - Tapping, swiping, or any UI navigation. Tools for that do not exist.
 - Re-inspecting things already covered in "Prior knowledge" (injected
   below). Confirm or extend; don't repeat.
-- Running `run_shell` with unusual commands — the allowlist is there for
-  safety. Only escape into `run_shell` when no dedicated tool fits.
+- Running `run_shell` with grep/awk/sed pipelines — use the `grep_*`
+  tools instead; they are equivalent, deterministic, and logged.
+- Re-fetching cached data. `dumpsys`, `getprop`, `service list`, and
+  `settings list` cache after the first call this session.
+- Escaping into `run_shell` when a dedicated tool fits.
 
 ## Tool catalogue
 
-You will see the formal schemas via the API. In short:
+You will see the formal schemas via the API. Quick reference:
 
-- `get_device_properties` — already auto-run, see first user message.
+Enumeration (broad, cached):
+- `get_device_properties` — already auto-run; see first user message.
 - `list_packages(filter)` — `third_party | system | all | disabled | enabled`.
 - `inspect_package(package, compact?)` — version, permissions, activities.
 - `list_services` — binder services.
-- `dumpsys(section)` — curated allowlist (see dumpsys_sections.md).
-- `read_settings(namespace)` — `system | secure | global`.
+- `read_settings(namespace)` — full bucket dump.
 - `list_processes` — running ps.
-- `read_file(path)` — `cat` arbitrary file (root).
-- `list_dir(path)` — `ls -la`.
-- `run_shell(command)` — allowlisted shell escape hatch.
-- `capture_home_screen` — one optional UI snapshot.
+- `dumpsys(section)` — full section text (heavy — prefer `grep_dumpsys`).
+
+Abstract search (preferred for targeted questions):
+- `find_property(pattern, value_pattern?)`
+- `find_package(pattern, filter?)`
+- `find_service(pattern)`
+- `find_setting(pattern, namespaces?)`
+- `grep_dumpsys(section, pattern, context?)`
+- `grep_logcat(pattern, since?, max_lines?)`
+- `grep_file(path, pattern, context?)`
+- `search_facts(pattern)` — recall your own notes.
+
+File / shell escape hatches:
+- `read_file(path, max_bytes?)`
+- `list_dir(path)`
+- `run_shell(command)` — allowlisted; last resort.
+
+Visual + knowledge:
+- `capture_home_screen` — at most once.
 - `note(category, key, value)` — record a structured fact.
 - `finish(summary)` — end the session with a markdown summary.
 

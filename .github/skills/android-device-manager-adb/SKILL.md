@@ -1,6 +1,6 @@
 ---
 name: android-device-manager-adb
-version: 2.0.0
+version: 2.1.0
 description: >
   Reference data and workflow for performing programmatic, root-privileged Android system
   inspection through ADB (Android Debug Bridge) inside this repository's RAG-powered analyzer.
@@ -62,20 +62,80 @@ tool calls.
 These are the tools the LLM can call inside a session (see
 `scripts/agent/schemas.py` for full schemas):
 
+### Enumeration (broad, cached after first call)
+
 | Tool | Purpose |
 |---|---|
-| `get_device_properties` | Run `getprop` and return key build / hardware properties |
-| `list_packages` | Enumerate installed packages (all / system / third-party) |
-| `inspect_package` | Pull manifest, dump, version, and intents for a single package |
-| `dumpsys` | Run `dumpsys <section>` with output capture and provenance |
-| `read_settings` | Read `settings list <system\|secure\|global>` |
-| `list_processes` | Run `ps -A` and return parsed rows |
-| `read_file` | `adb shell cat <path>` for an allowlisted path |
-| `list_dir` | `adb shell ls -la <path>` for an allowlisted path |
-| `run_shell` | Allowlisted arbitrary shell (gated by `--allow-arbitrary-shell`) |
-| `capture_home_screen` | Optional: press HOME, settle, capture UI dump signature + screenshot |
-| `note` | Persist a structured fact into the knowledge store |
-| `finish` | Signal that the goal is satisfied; ends the session |
+| `get_device_properties` | Run `getprop`; populate the property cache |
+| `list_packages(filter)` | `third_party` / `system` / `all` / `disabled` / `enabled` |
+| `inspect_package(package, compact?)` | Manifest, version, permissions, activities |
+| `list_services` | Registered binder services |
+| `read_settings(namespace)` | Full bucket: `system` / `secure` / `global` |
+| `list_processes` | `ps -A` parsed rows |
+| `dumpsys(section)` | Full dumpsys section text (heavy — prefer `grep_dumpsys`) |
+
+### Abstract search (preferred for targeted questions)
+
+| Tool | Purpose |
+|---|---|
+| `find_property(pattern, value_pattern?)` | Regex over `getprop` (key OR value) |
+| `find_package(pattern, filter?)` | Regex over installed packages + APK paths |
+| `find_service(pattern)` | Regex over binder services |
+| `find_setting(pattern, namespaces?)` | Regex across settings buckets |
+| `grep_dumpsys(section, pattern, context?)` | Regex over a dumpsys section's full output |
+| `grep_logcat(pattern, since?, max_lines?)` | Regex over recent logcat (`-d`) |
+| `grep_file(path, pattern, context?)` | Regex over a single device file |
+| `search_facts(pattern)` | Regex over notes already recorded this session |
+
+### File and shell escape hatches
+
+| Tool | Purpose |
+|---|---|
+| `read_file(path, max_bytes?)` | Full `cat` for a path |
+| `list_dir(path)` | `ls -la` |
+| `run_shell(command)` | Allowlisted arbitrary shell (gated by `--allow-arbitrary-shell`) |
+
+### Visual + knowledge
+
+| Tool | Purpose |
+|---|---|
+| `capture_home_screen` | One optional UI dump + screenshot of the launcher |
+| `note(category, key, value)` | Persist a structured fact into the knowledge store |
+| `finish(summary)` | Markdown summary; ends the session |
+
+## Querying with abstract inputs
+
+All `find_*` and `grep_*` tools accept a Python regex (case-insensitive
+by default). They return only matching lines plus surrounding context,
+along with `total_matches` so the agent knows whether to refine.
+
+Worked examples:
+
+- Confirm root posture → `find_property("ro\\.debuggable|ro\\.secure")`.
+- Locate OEM / vendor packages → `find_package("\\bcar\\b|automotive|vendor")`.
+- Audio HAL details → `grep_dumpsys("audio", "HAL|Patch|version")`.
+- Focused window / IME → `grep_dumpsys("window", "mCurrentFocus|imeWindow")`.
+- Validated networks → `grep_dumpsys("connectivity", "VALIDATED|Network \\{")`.
+- Recent fatal errors → `grep_logcat("FATAL|AndroidRuntime|ANR", since="15m")`.
+- Build slot info → `grep_file("/proc/cmdline", "androidboot\\.slot")`.
+- Recall a fact → `search_facts("audio")` before another `note`.
+
+### Decision tree — which tool?
+
+1. **Question is about identity / build / hardware** → `find_property`.
+2. **Question is about installed apps** → `find_package` first;
+   `inspect_package` only for unusual hits.
+3. **Question is about a registered service** → `find_service`.
+4. **Question is about a setting** → `find_setting`.
+5. **Question is about a subsystem state** (audio, display, power,
+   connectivity, …) → `grep_dumpsys(<section>, <pattern>)`.
+6. **Question is about a recent runtime event** → `grep_logcat`.
+7. **Question is about a specific file** → `grep_file` for a substring,
+   `read_file` for the whole thing.
+8. **Already covered this?** → `search_facts` before re-noting.
+
+Reach for `dumpsys`, `list_packages`, or `run_shell` only when no
+abstract-search tool fits the question.
 
 ## Workflow
 

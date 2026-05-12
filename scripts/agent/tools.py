@@ -76,6 +76,11 @@ class AgentSession:
     # Used by runner to record device identity once at session start.
     device_identity:   dict[str, Any]            = field(default_factory=dict)
 
+    # Raw text caches for the grep_/find_ family of tools. Populated
+    # lazily on first access so the LLM can re-query without re-shelling.
+    cache_dumpsys:  dict[str, str] = field(default_factory=dict)
+    cache_logcat:   str            = ""
+
     # ------------------------------------------------------------------
     # Filesystem layout
     # ------------------------------------------------------------------
@@ -126,6 +131,7 @@ _SHELL_ALLOWLIST: tuple[re.Pattern[str], ...] = tuple(
         r"^date( |$)",
         r"^am stack list$",
         r"^cmd [a-zA-Z0-9_]+ ",
+        r"^logcat -d( |$)",
     )
 )
 
@@ -209,6 +215,83 @@ def _truncate(text: str, limit: int = 1200) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 12] + "\n…(truncated)"
+
+
+# ---------------------------------------------------------------------------
+# Host-side grep helper — used by all find_/grep_ tools.
+# ---------------------------------------------------------------------------
+
+def _compile_regex(pattern: str, case_sensitive: bool) -> tuple[Any, str | None]:
+    flags = 0 if case_sensitive else re.IGNORECASE
+    try:
+        return re.compile(pattern, flags), None
+    except re.error as exc:
+        return None, f"invalid regex {pattern!r}: {exc}"
+
+
+def _grep_text(
+    text: str,
+    pattern: str,
+    *,
+    context: int = 2,
+    max_matches: int = 50,
+    case_sensitive: bool = False,
+) -> dict[str, Any]:
+    """Return regex matches with line numbers + surrounding context."""
+    rx, err = _compile_regex(pattern, case_sensitive)
+    if err:
+        return {"error": err}
+    lines = text.splitlines()
+    hits = [i for i, ln in enumerate(lines) if rx.search(ln)]
+    matches: list[dict[str, Any]] = []
+    for i in hits[:max_matches]:
+        start = max(0, i - context)
+        end   = min(len(lines), i + context + 1)
+        matches.append({
+            "line_no": i + 1,
+            "line":    lines[i].rstrip(),
+            "context": [lines[j].rstrip() for j in range(start, end)],
+        })
+    return {
+        "pattern":       pattern,
+        "total_matches": len(hits),
+        "returned":      len(matches),
+        "matches":       matches,
+    }
+
+
+def _grep_mapping(
+    items: dict[str, str],
+    pattern: str,
+    *,
+    value_pattern: str | None = None,
+    max_matches: int = 50,
+    case_sensitive: bool = False,
+) -> dict[str, Any]:
+    """Grep a key→value mapping; match against key OR value by default."""
+    rx_k, err = _compile_regex(pattern, case_sensitive)
+    if err:
+        return {"error": err}
+    rx_v = None
+    if value_pattern:
+        rx_v, err = _compile_regex(value_pattern, case_sensitive)
+        if err:
+            return {"error": err}
+    hits: list[dict[str, str]] = []
+    for k, v in items.items():
+        if not rx_k.search(k) and not rx_k.search(str(v)):
+            continue
+        if rx_v is not None and not rx_v.search(str(v)):
+            continue
+        hits.append({"key": k, "value": str(v)})
+    total = len(hits)
+    return {
+        "pattern":       pattern,
+        "value_pattern": value_pattern,
+        "total_matches": total,
+        "returned":      min(total, max_matches),
+        "matches":       hits[:max_matches],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -490,6 +573,7 @@ def tool_dumpsys(
     if code != 0:
         return {"error": f"dumpsys failed (exit {code}): {err}".strip()}
     raw_path = _persist_raw(session, "dumpsys", section, out)
+    session.cache_dumpsys[section] = out
     session.dumpsys_excerpts.append({
         "section":       section,
         "raw_file":      raw_path,
@@ -688,6 +772,223 @@ _NOTE_CATEGORIES = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Abstract-query tools: search cached data without re-running heavy shells.
+# ---------------------------------------------------------------------------
+
+def tool_find_property(
+    session: AgentSession,
+    *,
+    pattern: str,
+    value_pattern: str | None = None,
+    max_matches: int = 50,
+) -> dict[str, Any]:
+    """Grep ``getprop`` for keys or values matching a regex.
+
+    Auto-fetches getprop if it has not been collected yet. Match is
+    case-insensitive by default and runs against both key and value.
+    """
+    if not session.properties:
+        bootstrap = tool_get_device_properties(session)
+        if "error" in bootstrap:
+            return bootstrap
+    return _grep_mapping(
+        session.properties, pattern,
+        value_pattern=value_pattern, max_matches=max_matches,
+    )
+
+
+def tool_find_package(
+    session: AgentSession,
+    *,
+    pattern: str,
+    filter: str = "all",
+    max_matches: int = 60,
+) -> dict[str, Any]:
+    """Grep installed package names.
+
+    Auto-fetches the requested ``filter`` set if not yet enumerated.
+    """
+    # Bootstrap if we have nothing OR if a specific filter was requested
+    # but we haven't run that filter yet.
+    if not session.packages or filter == "third_party":
+        if not any(True for _ in session.packages):
+            tool_list_packages(session, filter=filter)
+    if not session.packages:
+        return {"error": "package list unavailable"}
+    items = {pkg: meta.get("apk_path") or "" for pkg, meta in session.packages.items()}
+    if filter == "system":
+        items = {k: v for k, v in items.items()
+                 if session.packages[k].get("is_system")}
+    elif filter == "third_party":
+        items = {k: v for k, v in items.items()
+                 if not session.packages[k].get("is_system")}
+    return _grep_mapping(items, pattern, max_matches=max_matches)
+
+
+def tool_find_service(
+    session: AgentSession,
+    *,
+    pattern: str,
+    max_matches: int = 60,
+) -> dict[str, Any]:
+    """Grep registered binder services for a regex match."""
+    if not session.services:
+        tool_list_services(session)
+    if not session.services:
+        return {"error": "service list unavailable"}
+    return _grep_mapping(session.services, pattern, max_matches=max_matches)
+
+
+def tool_find_setting(
+    session: AgentSession,
+    *,
+    pattern: str,
+    namespaces: list[str] | None = None,
+    max_matches: int = 50,
+) -> dict[str, Any]:
+    """Grep settings keys/values across one or more namespaces."""
+    wanted = namespaces or ["system", "secure", "global"]
+    bad = [n for n in wanted if n not in ("system", "secure", "global")]
+    if bad:
+        return {"error": f"invalid namespace(s): {bad}"}
+    for ns in wanted:
+        if ns not in session.settings_buckets:
+            tool_read_settings(session, namespace=ns)
+    rx, err = _compile_regex(pattern, case_sensitive=False)
+    if err:
+        return {"error": err}
+    hits: list[dict[str, str]] = []
+    for ns in wanted:
+        for k, v in session.settings_buckets.get(ns, {}).items():
+            if rx.search(k) or rx.search(str(v)):
+                hits.append({"namespace": ns, "key": k, "value": str(v)})
+    total = len(hits)
+    return {
+        "pattern":       pattern,
+        "namespaces":    wanted,
+        "total_matches": total,
+        "returned":      min(total, max_matches),
+        "matches":       hits[:max_matches],
+    }
+
+
+def tool_grep_dumpsys(
+    session: AgentSession,
+    *,
+    section: str,
+    pattern: str,
+    context: int = 2,
+    max_matches: int = 50,
+) -> dict[str, Any]:
+    """Run ``dumpsys <section>`` (cached) and return regex-matching lines.
+
+    Use this instead of ``dumpsys`` when you only care about a sub-topic
+    — e.g. ``grep_dumpsys("activity", "ResumedActivity")`` rather than
+    pulling the entire dumpsys activity output.
+    """
+    if section not in DUMPSYS_SECTIONS:
+        return {
+            "error":            f"section {section!r} not in allowlist",
+            "allowed_sections": list(DUMPSYS_SECTIONS),
+        }
+    if section not in session.cache_dumpsys:
+        fetched = tool_dumpsys(session, section=section)
+        if "error" in fetched:
+            return fetched
+    text = session.cache_dumpsys.get(section, "")
+    result = _grep_text(text, pattern,
+                        context=context, max_matches=max_matches)
+    result["section"] = section
+    return result
+
+
+def tool_grep_logcat(
+    session: AgentSession,
+    *,
+    pattern: str,
+    since: str | None = None,
+    max_lines: int = 5000,
+    context: int = 0,
+    max_matches: int = 50,
+) -> dict[str, Any]:
+    """Dump recent logcat and return matching lines.
+
+    ``since`` accepts logcat's ``-t`` time spec, e.g. ``"15m"``, ``"2h"``,
+    or an explicit timestamp. If omitted, the last ``max_lines`` lines
+    are returned (via ``-T <n>``).
+    """
+    _log = session.log or (lambda _m: None)
+    if since and not re.match(r"^[a-zA-Z0-9: .\-]+$", since):
+        return {"error": f"invalid since value: {since!r}"}
+    cmd_parts = ["logcat", "-d"]
+    if since:
+        cmd_parts.extend(["-t", since])
+    else:
+        cmd_parts.extend(["-T", str(int(max_lines))])
+    cmd = " ".join(cmd_parts)
+    _log(f"    • {cmd}…")
+    code, out, err = _shell(session, cmd, timeout=30.0)
+    if code != 0:
+        return {"error": f"logcat failed (exit {code}): {err}".strip()}
+    session.cache_logcat = out
+    raw_path = _persist_raw(session, "logcat", since or f"T{max_lines}", out)
+    result = _grep_text(out, pattern, context=context, max_matches=max_matches)
+    result["raw_file"]   = raw_path
+    result["line_count"] = len(out.splitlines())
+    return result
+
+
+def tool_grep_file(
+    session: AgentSession,
+    *,
+    path: str,
+    pattern: str,
+    context: int = 0,
+    max_matches: int = 50,
+) -> dict[str, Any]:
+    """``cat`` a device file and return regex-matching lines."""
+    if not re.match(r"^/[a-zA-Z0-9_./\-]+$", path):
+        return {"error": f"invalid path: {path!r}"}
+    _log = session.log or (lambda _m: None)
+    _log(f"    • grep {pattern!r} {path}…")
+    code, out, err = _shell(session, f"cat {shlex.quote(path)}", timeout=30.0)
+    if code != 0:
+        return {"error": f"cat failed (exit {code}): {err}".strip(), "path": path}
+    raw_path = _persist_raw(session, "grep_file", path.replace("/", "_"), out)
+    result = _grep_text(out, pattern, context=context, max_matches=max_matches)
+    result["path"]     = path
+    result["raw_file"] = raw_path
+    return result
+
+
+def tool_search_facts(
+    session: AgentSession,
+    *,
+    pattern: str,
+    max_matches: int = 20,
+) -> dict[str, Any]:
+    """Grep facts already recorded in *this* session (via ``note``).
+
+    Useful so the LLM can recall what it has already established and
+    avoid duplicate ``note`` calls.
+    """
+    rx, err = _compile_regex(pattern, case_sensitive=False)
+    if err:
+        return {"error": err}
+    hits = []
+    for f in session.facts:
+        blob = f"{f['category']} {f['key']} {f['value']}"
+        if rx.search(blob):
+            hits.append(f)
+    return {
+        "pattern":       pattern,
+        "total_matches": len(hits),
+        "returned":      min(len(hits), max_matches),
+        "matches":       hits[:max_matches],
+    }
+
+
 def tool_note(
     session: AgentSession,
     *,
@@ -734,6 +1035,14 @@ TOOL_REGISTRY: dict[str, Callable[..., dict[str, Any]]] = {
     "list_dir":              tool_list_dir,
     "run_shell":             tool_run_shell,
     "capture_home_screen":   tool_capture_home_screen,
+    "find_property":         tool_find_property,
+    "find_package":          tool_find_package,
+    "find_service":          tool_find_service,
+    "find_setting":          tool_find_setting,
+    "grep_dumpsys":          tool_grep_dumpsys,
+    "grep_logcat":           tool_grep_logcat,
+    "grep_file":             tool_grep_file,
+    "search_facts":          tool_search_facts,
     "note":                  tool_note,
     "finish":                tool_finish,
 }
