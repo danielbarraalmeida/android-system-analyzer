@@ -170,6 +170,33 @@ def create_app(
             rows = [r for r in rows if r.get("category") == category]
         return rows
 
+    @app.get("/api/adb-devices")
+    def _adb_devices() -> list[dict[str, str]]:
+        """Run ``adb devices -l`` and return live device list.
+
+        Used by the UI to populate the serial picker before any
+        inspection has been recorded.
+        """
+        import subprocess
+        try:
+            out = subprocess.run(
+                ["adb", "devices", "-l"],
+                text=True, capture_output=True, check=False, timeout=10,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+            raise HTTPException(status_code=503, detail=f"adb error: {exc}")
+        devices: list[dict[str, str]] = []
+        for line in (out.stdout or "").splitlines()[1:]:
+            parts = line.strip().split()
+            if len(parts) >= 2 and parts[1] == "device":
+                meta = {"serial": parts[0], "state": "device"}
+                for kv in parts[2:]:
+                    if ":" in kv:
+                        k, _, v = kv.partition(":")
+                        meta[k] = v
+                devices.append(meta)
+        return devices
+
     @app.post("/api/ask")
     def _ask(req: AskRequest) -> dict[str, Any]:
         result = answer_question(

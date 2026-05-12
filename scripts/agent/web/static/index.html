@@ -122,16 +122,19 @@ pre.log {
 <main>
   <!-- Devices -->
   <section id="devices">
-    <h2>Devices</h2>
+    <h2>Recorded devices</h2>
     <div id="device-list"><p class="empty">loading…</p></div>
+    <h2 style="margin-top: 20px;">Live ADB devices</h2>
+    <div id="adb-list"><p class="empty">loading…</p></div>
   </section>
 
   <!-- Ask -->
   <section id="ask">
     <h2>Ask the knowledge store</h2>
     <div class="panel-body">
-      <p class="hint">Selected: <span id="ask-serial" style="font-family: var(--mono);">(none)</span></p>
-      <textarea id="ask-q" placeholder="e.g. What root-capable services does this device expose?"></textarea>
+      <label class="hint">Serial</label>
+      <input type="text" id="ask-serial-in" placeholder="10.56.19.39:5555">
+      <textarea id="ask-q" placeholder="e.g. What root-capable services does this device expose?" style="margin-top: 8px;"></textarea>
       <div class="row">
         <label>top-k <input type="number" id="ask-k" value="5" min="1" max="20" style="width: 70px;"></label>
         <button class="primary" id="ask-btn">Ask</button>
@@ -144,8 +147,9 @@ pre.log {
   <section id="inspect">
     <h2>Launch inspection</h2>
     <div class="panel-body">
-      <p class="hint">Selected: <span id="ins-serial" style="font-family: var(--mono);">(none)</span></p>
-      <textarea id="ins-goal" placeholder="(empty = default goal from prompts/default_goal.md)"></textarea>
+      <label class="hint">Serial</label>
+      <input type="text" id="ins-serial-in" placeholder="10.56.19.39:5555">
+      <textarea id="ins-goal" placeholder="(empty = default goal from prompts/default_goal.md)" style="margin-top: 8px;"></textarea>
       <div class="row">
         <label>max-turns <input type="number" id="ins-turns" value="25" min="1" style="width: 80px;"></label>
         <label>timeout (s) <input type="number" id="ins-timeout" value="600" min="30" style="width: 90px;"></label>
@@ -169,7 +173,6 @@ pre.log {
 
 <script>
 const $ = id => document.getElementById(id);
-let selected = null;
 
 // ---------------------------------------------------------------------- health
 async function pingHealth() {
@@ -187,43 +190,68 @@ async function pingHealth() {
 
 // --------------------------------------------------------------------- devices
 async function loadDevices() {
-  const r = await fetch("/api/devices");
-  const devices = await r.json();
-  const root = $("device-list");
-  if (!devices.length) {
-    root.innerHTML = '<p class="empty">No devices recorded yet. Launch an inspection first.</p>';
-    return;
-  }
-  root.innerHTML = "";
-  devices.forEach(d => {
-    const div = document.createElement("div");
-    div.className = "device";
-    div.dataset.serial = d.serial;
-    div.innerHTML = `
-      <div class="serial">${escape(d.serial)}</div>
-      <div class="meta">${escape(d.manufacturer || "?")} ${escape(d.model || "")}
-        — Android ${escape(d.android_version || "?")}</div>
-      <div class="pills">
-        <span class="pill">${d.fact_count} facts</span>
-        <span class="pill">${d.package_count} pkgs</span>
-      </div>`;
-    div.onclick = () => selectDevice(d.serial);
-    root.appendChild(div);
-  });
+  try {
+    const r = await fetch("/api/devices");
+    const devices = await r.json();
+    const root = $("device-list");
+    if (!devices.length) {
+      root.innerHTML = '<p class="empty">No facts recorded yet. Launch an inspection.</p>';
+    } else {
+      root.innerHTML = "";
+      devices.forEach(d => {
+        const div = document.createElement("div");
+        div.className = "device";
+        div.dataset.serial = d.serial;
+        div.innerHTML = `
+          <div class="serial">${escape(d.serial)}</div>
+          <div class="meta">${escape(d.manufacturer || "?")} ${escape(d.model || "")}
+            — Android ${escape(d.android_version || "?")}</div>
+          <div class="pills">
+            <span class="pill">${d.fact_count} facts</span>
+            <span class="pill">${d.package_count} pkgs</span>
+          </div>`;
+        div.onclick = () => useSerial(d.serial);
+        root.appendChild(div);
+      });
+    }
+  } catch (e) {}
 }
 
-function selectDevice(serial) {
-  selected = serial;
+async function loadAdbDevices() {
+  const root = $("adb-list");
+  try {
+    const r = await fetch("/api/adb-devices");
+    if (!r.ok) { root.innerHTML = '<p class="empty">adb unavailable</p>'; return; }
+    const devices = await r.json();
+    if (!devices.length) { root.innerHTML = '<p class="empty">No connected devices.</p>'; return; }
+    root.innerHTML = "";
+    devices.forEach(d => {
+      const div = document.createElement("div");
+      div.className = "device";
+      div.dataset.serial = d.serial;
+      div.innerHTML = `
+        <div class="serial">${escape(d.serial)}</div>
+        <div class="meta">${escape(d.model || d.product || "device")}</div>`;
+      div.onclick = () => useSerial(d.serial);
+      root.appendChild(div);
+    });
+  } catch (e) {
+    root.innerHTML = '<p class="empty">adb unavailable</p>';
+  }
+}
+
+function useSerial(serial) {
+  $("ask-serial-in").value = serial;
+  $("ins-serial-in").value = serial;
   document.querySelectorAll(".device").forEach(el => {
     el.classList.toggle("active", el.dataset.serial === serial);
   });
-  $("ask-serial").textContent = serial;
-  $("ins-serial").textContent = serial;
 }
 
 // ------------------------------------------------------------------------- ask
 $("ask-btn").onclick = async () => {
-  if (!selected) { alert("Select a device first."); return; }
+  const serial = $("ask-serial-in").value.trim();
+  if (!serial) { alert("Enter a device serial first."); return; }
   const q = $("ask-q").value.trim();
   if (!q) return;
   const k = parseInt($("ask-k").value, 10) || 5;
@@ -231,7 +259,7 @@ $("ask-btn").onclick = async () => {
   try {
     const r = await fetch("/api/ask", {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({serial: selected, question: q, top_k: k}),
+      body: JSON.stringify({serial, question: q, top_k: k}),
     });
     const j = await r.json();
     renderAsk(j);
@@ -263,9 +291,10 @@ function renderAsk(j) {
 
 // --------------------------------------------------------------------- inspect
 $("ins-btn").onclick = async () => {
-  if (!selected) { alert("Select a device first."); return; }
+  const serial = $("ins-serial-in").value.trim();
+  if (!serial) { alert("Enter a device serial first."); return; }
   const body = {
-    serial:                selected,
+    serial,
     goal:                  $("ins-goal").value,
     max_turns:             parseInt($("ins-turns").value, 10) || 25,
     timeout_seconds:       parseFloat($("ins-timeout").value) || 600,
@@ -312,7 +341,7 @@ function streamSession(sid) {
     } catch (err) {}
     es.close();
     $("ins-btn").disabled = false;
-    loadDevices();  // refresh fact counts
+    loadDevices();
   });
   es.addEventListener("ping", () => {});
   es.onerror = () => {
@@ -331,7 +360,9 @@ function escape(s) {
 pingHealth();
 setInterval(pingHealth, 30000);
 loadDevices();
+loadAdbDevices();
 setInterval(loadDevices, 15000);
+setInterval(loadAdbDevices, 15000);
 </script>
 </body>
 </html>
