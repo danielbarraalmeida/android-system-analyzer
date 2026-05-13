@@ -88,7 +88,7 @@ Configured via `scripts/agent/llm_client.py`. Defaults:
 
 | Field             | Default                                           |
 |-------------------|---------------------------------------------------|
-| `base_url`        | `http://127.0.0.1:1234/v1`               |
+| `base_url`        | `http://127.0.0.1:1234/v1`                        |
 | `model`           | `google/gemma-4-e4b`                              |
 | `embedding_model` | `text-embedding-nomic-embed-text-v1.5`            |
 | `api_key`         | `local` (any non-empty string)                    |
